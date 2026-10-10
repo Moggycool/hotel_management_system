@@ -1,0 +1,6 @@
+{
+  "name": "Arbaminch Tourist Hotel Management System",
+  "description": "Enterprise Hotel Management System for Arbaminch Tourist Hotel in Ethiopia, featuring multi-role authentication, front desk, reservations, Telebirr integration, housekeeping, F&B orders, inventory, and night audit.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
