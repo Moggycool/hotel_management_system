@@ -1,3 +1,4 @@
+""" Seeds the database with initial data for Arbaminch Tourist Hotel, including property details, staff roles, room types, physical rooms, and a sample guest and reservation. """
 from decimal import Decimal
 from datetime import date, timedelta
 from django.core.management.base import BaseCommand
