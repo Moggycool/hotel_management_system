@@ -1,0 +1,45 @@
+from rest_framework.permissions import BasePermission
+from apps.accounts.models import StaffRole
+
+
+class HasRole(BasePermission):
+    """
+    Checks if authenticated user possesses one of the allowed roles.
+    """
+    allowed_roles = []
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.role == StaffRole.SYSTEM_ADMIN or request.user.is_superuser:
+            return True
+        return request.user.role in self.allowed_roles
+
+
+class IsGeneralManager(HasRole):
+    allowed_roles = [StaffRole.GENERAL_MANAGER]
+
+
+class IsFrontOfficeStaff(HasRole):
+    allowed_roles = [
+        StaffRole.GENERAL_MANAGER,
+        StaffRole.FRONT_OFFICE_MANAGER,
+        StaffRole.RECEPTIONIST,
+        StaffRole.CASHIER,
+    ]
+
+
+class IsFinanceStaff(HasRole):
+    allowed_roles = [
+        StaffRole.GENERAL_MANAGER,
+        StaffRole.FINANCE_OFFICER,
+        StaffRole.CASHIER,
+    ]
+
+
+class IsHousekeepingStaff(HasRole):
+    allowed_roles = [
+        StaffRole.GENERAL_MANAGER,
+        StaffRole.HOUSEKEEPING_SUPERVISOR,
+        StaffRole.HOUSEKEEPER,
+    ]
