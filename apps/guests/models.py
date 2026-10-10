@@ -1,3 +1,4 @@
+""" Guest model definitions """
 import uuid
 from django.db import models
 

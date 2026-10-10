@@ -12,10 +12,14 @@ import {
   ChevronRight,
   User,
   SlidersHorizontal,
+  Database,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Reservation, ReservationStatus } from '../../types/hotel';
 import { getRelativeDate } from '../../data/initialData';
+import { hotelApi } from '../../api/hotelApi';
 
 interface ReservationsTabProps {
   onOpenNewReservation: () => void;
@@ -33,6 +37,56 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
   const [dateFilter, setDateFilter] = useState<'all' | 'today_arrivals' | 'today_departures' | 'in_house'>('all');
 
   const todayStr = getRelativeDate(0);
+  const [isSyncingWithDjango, setIsSyncingWithDjango] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
+
+  const handleSyncAllToDjango = async () => {
+    setIsSyncingWithDjango(true);
+    setSyncStatusMsg(null);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const res of reservations) {
+      try {
+        const result = await hotelApi.syncReservationToDjango({
+          guest_name: res.guestName,
+          guest_email: res.guestEmail,
+          guest_phone: res.guestPhone,
+          room_number: res.roomNumber,
+          room_id: res.roomId,
+          rate_plan_name: 'Standard Flexible Rate',
+          check_in_date: res.checkInDate,
+          check_out_date: res.checkOutDate,
+          adults: res.adults,
+          children: res.children,
+          source: 'walk_in',
+          special_requests: res.specialRequests,
+          room_rate_total_etb: res.roomRateTotal,
+          vat_etb: res.taxTotal * 0.6,
+          service_charge_etb: res.taxTotal * 0.4,
+          grand_total_etb: res.grandTotal,
+          deposit_paid_etb: res.amountPaid,
+          payment_method: 'telebirr',
+        });
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsSyncingWithDjango(false);
+    if (successCount > 0 && failCount === 0) {
+      setSyncStatusMsg(`✅ Successfully synced all ${successCount} reservation(s) to Django backend & PostgreSQL! Check your Django Admin.`);
+    } else if (successCount > 0 && failCount > 0) {
+      setSyncStatusMsg(`⚠️ Partially synced: ${successCount} succeeded, ${failCount} failed.`);
+    } else {
+      setSyncStatusMsg(`ℹ️ Django backend at http://localhost:8000/api/v1/ is currently offline or unreachable. Please start Django in VS Code (\`python manage.py runserver\`). All records remain safely stored in your browser registry.`);
+    }
+  };
 
   const filteredReservations = reservations.filter((res) => {
     // Status filter
@@ -84,14 +138,47 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onOpenNewReservation}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>New Reservation</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={handleSyncAllToDjango}
+            disabled={isSyncingWithDjango}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+            title="Push local reservations to Django backend & PostgreSQL database"
+          >
+            <Database className={`w-3.5 h-3.5 text-indigo-600 ${isSyncingWithDjango ? 'animate-spin' : ''}`} />
+            <span>{isSyncingWithDjango ? 'Syncing to Django...' : 'Sync with Django Admin'}</span>
+          </button>
+
+          <button
+            onClick={onOpenNewReservation}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>New Reservation</span>
+          </button>
+        </div>
       </div>
+
+      {/* Django Sync Status Message */}
+      {syncStatusMsg && (
+        <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start justify-between gap-3 animate-fadeIn">
+          <div className="flex items-start gap-2">
+            <Database className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">{syncStatusMsg}</p>
+              <p className="text-[11px] text-indigo-700 mt-0.5">
+                Target endpoint: <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono">http://localhost:8000/api/v1/reservations/</code>.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSyncStatusMsg(null)}
+            className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-3">

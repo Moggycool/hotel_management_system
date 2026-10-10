@@ -11,10 +11,12 @@ import {
   Clock,
   CreditCard,
   CheckCircle,
+  Server,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Room, PaymentMethod } from '../../types/hotel';
 import { getRelativeDate } from '../../data/initialData';
+import { hotelApi } from '../../api/hotelApi';
 
 interface NewReservationModalProps {
   initialRoom?: Room | null;
@@ -127,14 +129,19 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   if (paymentOption === 'full') initialDepositAmount = grandTotal;
   else if (paymentOption === 'deposit') initialDepositAmount = Math.min(customDeposit, grandTotal);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guestName || !guestEmail || !selectedRoomId) {
       alert('Please complete all required fields.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
+      // 1. Authoritative client-side registry persistence
       const newRes = createReservation({
         guestName,
         guestEmail,
@@ -157,9 +164,47 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
         directCheckIn,
       });
 
+      // 2. Dispatch HTTP sync to Django REST Framework backend on port 8000
+      try {
+        const vatVal = parseFloat(((subtotal * (settings.vatRatePercent || 15)) / 100).toFixed(2));
+        const svsVal = parseFloat(((subtotal * (settings.serviceChargePercent || 10)) / 100).toFixed(2));
+        hotelApi.syncReservationToDjango({
+          guest_name: guestName,
+          guest_email: guestEmail,
+          guest_phone: guestPhone,
+          id_type: idType,
+          id_number: idNumber,
+          room_number: targetRoom?.roomNumber || '',
+          room_id: selectedRoomId,
+          rate_plan_name: ratePlanTitle,
+          check_in_date: checkInDate,
+          check_out_date: checkOutDate,
+          adults,
+          children,
+          source: bookingSource,
+          special_requests: specialRequests,
+          room_rate_total_etb: roomRate,
+          vat_etb: vatVal,
+          service_charge_etb: svsVal,
+          grand_total_etb: grandTotal,
+          deposit_paid_etb: initialDepositAmount,
+          payment_method: paymentMethod,
+        }).then((syncResult) => {
+          if (syncResult.success) {
+            console.log('✅ Successfully synced reservation to Django backend & PostgreSQL database:', syncResult.data);
+          } else {
+            console.warn('ℹ️ Django backend offline or port 8000 unreachable. Reservation stored safely in local registry:', syncResult.error);
+          }
+        });
+      } catch (syncErr) {
+        console.warn('Backend sync bypassed - stored in local state:', syncErr);
+      }
+
       onCreated(newRes.id);
     } catch (err: any) {
       alert(err.message || 'Error creating reservation');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
