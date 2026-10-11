@@ -191,8 +191,8 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
           payment_method: paymentMethod,
           confirmation_code: newRes.confirmationCode,
         }).then((syncResult) => {
-          if (syncResult.success) {
-            console.log('✅ Successfully synced reservation to Django backend & PostgreSQL database:', syncResult.data);
+          if (syncResult.syncedToDjango) {
+            console.log('✅ Successfully synced reservation to Django backend:', syncResult.data);
             updateReservationSyncStatus(newRes.id, true, undefined, syncResult.data?.id);
           } else {
             console.warn('ℹ️ Django backend notice:', syncResult.error);

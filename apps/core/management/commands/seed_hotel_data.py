@@ -118,6 +118,16 @@ class Command(BaseCommand):
             ('Sara Kassa', '+251914556677', 'sara.kassa@flyethiopian.com', IDType.PASSPORT, 'EP-882194', VIPTier.REGULAR),
             ('Kenenisa Tulu', '+251915667788', 'kenenisa.tulu@moa.gov.et', IDType.FAYDA, 'FAN-7711-2299', VIPTier.GOLD),
             ('Moggy Ged', '+251911009988', 'dfdf@gmail.com', IDType.FAYDA, 'FAN-2233-4455', VIPTier.REGULAR),
+            ('Alexander Wright', '+251911100001', 'a.wright@metals.com', IDType.PASSPORT, 'PASSPORT-UK-849201', VIPTier.PLATINUM),
+            ('Elena Rostova', '+251911100002', 'elena.rostova@geothermal.org', IDType.PASSPORT, 'PASSPORT-CH-992104', VIPTier.GOLD),
+            ('Marcus Vance', '+251911100003', 'marcus.vance@safari.com', IDType.PASSPORT, 'PASSPORT-US-551029', VIPTier.SILVER),
+            ('Sophia Montgomery', '+251911100004', 'sophia.montgomery@example.com', IDType.PASSPORT, 'PASSPORT-FR-302194', VIPTier.REGULAR),
+            ('David & Emily Miller', '+251911100005', 'miller.family@gmail.com', IDType.PASSPORT, 'PASSPORT-CA-220194', VIPTier.REGULAR),
+            ('Amara Okafor', '+251911100006', 'amara.okafor@afdb.org', IDType.PASSPORT, 'PASSPORT-NG-901248', VIPTier.GOLD),
+            ('Lucas & Chloe Bennett', '+251911100007', 'lucas.bennett@media.co.uk', IDType.PASSPORT, 'PASSPORT-GB-112039', VIPTier.REGULAR),
+            ('Claire Beauchamp', '+251911100008', 'claire.beauchamp@nature.fr', IDType.PASSPORT, 'PASSPORT-FR-883019', VIPTier.SILVER),
+            ('Nikhil Sharma', '+251911100009', 'nikhil.sharma@techconsult.in', IDType.PASSPORT, 'PASSPORT-IN-440192', VIPTier.GOLD),
+            ('Victoria Sterling', '+251911100010', 'v.sterling@heritage.org', IDType.PASSPORT, 'PASSPORT-GB-771920', VIPTier.PLATINUM),
         ]
 
         created_guests = []
@@ -144,6 +154,16 @@ class Command(BaseCommand):
             ('GH-2026-2304', created_guests[3], rooms_dict['305'], today - timedelta(days=1), today + timedelta(days=2), Decimal('15600.00'), BookingSource.CORPORATE, ReservationStatus.CHECKED_IN),
             ('GH-2026-2970', created_guests[4], rooms_dict['403'], today, today + timedelta(days=3), Decimal('34500.00'), BookingSource.AGENT, ReservationStatus.CHECKED_IN),
             ('GH-2026-2356', created_guests[5], rooms_dict['402'], today, today + timedelta(days=2), Decimal('23000.00'), BookingSource.WALK_IN, ReservationStatus.CHECKED_IN),
+            ('GH-2026-1011', created_guests[6], rooms_dict['101'], today - timedelta(days=2), today + timedelta(days=3), Decimal('17500.00'), BookingSource.WEBSITE, ReservationStatus.CHECKED_IN),
+            ('GH-2026-1044', created_guests[7], rooms_dict['104'], today - timedelta(days=1), today + timedelta(days=4), Decimal('14000.00'), BookingSource.CORPORATE, ReservationStatus.CHECKED_IN),
+            ('GH-2026-2015', created_guests[8], rooms_dict['201'], today - timedelta(days=3), today + timedelta(days=2), Decimal('26000.00'), BookingSource.AGENT, ReservationStatus.CHECKED_IN),
+            ('GH-2026-3019', created_guests[9], rooms_dict['301'], today - timedelta(days=1), today + timedelta(days=3), Decimal('31200.00'), BookingSource.WEBSITE, ReservationStatus.CHECKED_IN),
+            ('GH-2026-3033', created_guests[10], rooms_dict['303'], today - timedelta(days=2), today + timedelta(days=2), Decimal('20800.00'), BookingSource.PHONE, ReservationStatus.CHECKED_IN),
+            ('GH-2026-4010', created_guests[11], rooms_dict['401'], today - timedelta(days=1), today + timedelta(days=5), Decimal('69000.00'), BookingSource.CORPORATE, ReservationStatus.CHECKED_IN),
+            ('GH-2026-1039', created_guests[12], rooms_dict['103'], today + timedelta(days=1), today + timedelta(days=4), Decimal('10500.00'), BookingSource.WEBSITE, ReservationStatus.CONFIRMED),
+            ('GH-2026-2054', created_guests[13], rooms_dict['205'], today + timedelta(days=2), today + timedelta(days=5), Decimal('15600.00'), BookingSource.AGENT, ReservationStatus.CONFIRMED),
+            ('GH-2026-4047', created_guests[14], rooms_dict['404'], today + timedelta(days=3), today + timedelta(days=7), Decimal('46000.00'), BookingSource.CORPORATE, ReservationStatus.CONFIRMED),
+            ('GH-2026-2032', created_guests[15], rooms_dict['203'], today + timedelta(days=4), today + timedelta(days=6), Decimal('10400.00'), BookingSource.PHONE, ReservationStatus.CONFIRMED),
         ]
 
         for code, guest, room, check_in, check_out, rate_total, source, status in sample_reservations:

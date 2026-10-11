@@ -68,53 +68,45 @@ export const DatabaseAdminTab: React.FC = () => {
   const handlePushAllToDjango = async () => {
     setIsPushingAll(true);
     setPushStatusMsg(null);
-    let successCount = 0;
-    let failCount = 0;
-    const errors: string[] = [];
 
-    for (let i = 0; i < reservations.length; i++) {
-      const res = reservations[i];
-      try {
-        const result = await hotelApi.syncReservationToDjango({
-          guest_name: res.guestName,
-          guest_email: res.guestEmail,
-          guest_phone: res.guestPhone,
-          room_number: res.roomNumber,
-          room_id: res.roomId,
-          rate_plan_name: 'Standard Flexible Rate',
-          check_in_date: res.checkInDate,
-          check_out_date: res.checkOutDate,
-          adults: res.adults,
-          children: res.children,
-          source: res.source || 'WALK_IN',
-          special_requests: res.specialRequests,
-          room_rate_total_etb: res.roomRateTotal,
-          vat_etb: res.taxTotal * 0.6,
-          service_charge_etb: res.taxTotal * 0.4,
-          grand_total_etb: res.grandTotal,
-          deposit_paid_etb: res.amountPaid,
-          payment_method: 'telebirr',
-          confirmation_code: res.confirmationCode,
-        });
+    const payloads = reservations.map((res) => ({
+      guest_name: res.guestName,
+      guest_email: res.guestEmail,
+      guest_phone: res.guestPhone,
+      room_number: res.roomNumber,
+      room_id: res.roomId,
+      rate_plan_name: 'Standard Flexible Rate',
+      check_in_date: res.checkInDate,
+      check_out_date: res.checkOutDate,
+      adults: res.adults,
+      children: res.children,
+      source: res.source || 'WALK_IN',
+      status: res.status || 'CONFIRMED',
+      special_requests: res.specialRequests,
+      room_rate_total_etb: res.roomRateTotal,
+      vat_etb: Math.round((res.taxTotal * 0.6) * 100) / 100,
+      service_charge_etb: Math.round((res.taxTotal * 0.4) * 100) / 100,
+      grand_total_etb: res.grandTotal,
+      deposit_paid_etb: res.amountPaid,
+      payment_method: 'telebirr',
+      confirmation_code: res.confirmationCode,
+    }));
 
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-          if (result.error) errors.push(result.error);
-        }
-      } catch (err: any) {
-        failCount++;
-        errors.push(err?.message || 'Network error');
-      }
-    }
+    const bulkResult = await hotelApi.bulkSyncToDjango(payloads);
 
     setIsPushingAll(false);
-    if (failCount === 0) {
-      setPushStatusMsg(`🎉 Successfully synced all ${successCount} reservation(s) to Django! Refresh http://127.0.0.1:8000/admin/reservations/reservation/ to see all of them in the Django admin.`);
+    if (bulkResult.success) {
+      setPushStatusMsg(`🎉 Successfully synced all ${bulkResult.syncedCount} reservation(s) to Django! Refresh http://127.0.0.1:8000/admin/reservations/reservation/ to see all of them in the Django admin.`);
+    } else if (bulkResult.syncedCount > 0) {
+      setPushStatusMsg(`⚠️ Partially synced ${bulkResult.syncedCount} of ${payloads.length} reservations (${bulkResult.errors.slice(0, 2).join(', ')}).`);
     } else {
-      setPushStatusMsg(`⚠️ Synced ${successCount} reservations (${failCount} errors: ${errors.slice(0, 2).join(', ')}).`);
+      setPushStatusMsg(`ℹ️ Django server on port 8000 is unreachable via HTTP (${bulkResult.errors[0] || 'offline'}). Download sync_reservations.json and run 'python manage.py sync_reservations' in your terminal!`);
     }
+  };
+
+  const handleDownloadSyncJson = () => {
+    hotelApi.downloadSyncJson(reservations);
+    setPushStatusMsg('📥 Downloaded sync_reservations.json! Run "python manage.py sync_reservations" in your Django terminal to sync all reservations.');
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -201,6 +193,14 @@ export const DatabaseAdminTab: React.FC = () => {
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isChecking ? 'animate-spin' : ''}`} />
             <span>Test Connection</span>
+          </button>
+          <button
+            onClick={handleDownloadSyncJson}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 rounded-lg shadow-xs transition-colors cursor-pointer"
+            title="Download sync_reservations.json to run with python manage.py sync_reservations"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Django JSON</span>
           </button>
           <button
             onClick={handleExportJSON}
@@ -317,6 +317,20 @@ export const DatabaseAdminTab: React.FC = () => {
                 title="Copy command"
               >
                 {copiedCmd === 'runserver' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+
+            <div className="p-2.5 bg-slate-950/80 rounded-lg border border-slate-800 flex items-center justify-between">
+              <div className="text-emerald-400 overflow-x-auto whitespace-pre">
+                <span className="text-slate-500"># 3. Populate all front desk reservations directly into Django DB</span>
+                {'\n'}python manage.py sync_reservations
+              </div>
+              <button
+                onClick={() => handleCopy('python manage.py sync_reservations', 'sync_cmd')}
+                className="ml-3 p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                title="Copy command"
+              >
+                {copiedCmd === 'sync_cmd' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
           </div>

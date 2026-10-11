@@ -9,3 +9,4 @@ class GuestViewSet(viewsets.ModelViewSet):
     queryset = Guest.objects.all()
     serializer_class = GuestSerializer
     permission_classes = [AllowAny]
+    authentication_classes = []
