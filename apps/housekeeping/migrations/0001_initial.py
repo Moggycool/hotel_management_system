@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('core', '0001_initial'),
+        ('rooms', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -19,17 +19,24 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='HousekeepingTask',
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('task_type', models.CharField(choices=[('CHECKOUT_CLEAN', 'Checkout Deep Clean'), ('STAYOVER_REFRESH', 'Stayover Daily Refresh'), ('INSPECTION', 'Supervisor Quality Inspection'), ('LINEN_CHANGE', 'Bed Linen & Towel Replacement'), ('DEEP_CLEAN', 'Periodic Deep Sanitization')], default='CHECKOUT_CLEAN', max_length=30)),
-                ('status', models.CharField(choices=[('PENDING', 'Pending Assignment'), ('IN_PROGRESS', 'Cleaning In Progress'), ('INSPECTION_REQUIRED', 'Inspection Required'), ('COMPLETED', 'Cleaned & Ready'), ('MAINTENANCE_REQUIRED', 'Issue Flagged for Maintenance')], default='PENDING', max_length=30)),
-                ('priority', models.CharField(choices=[('LOW', 'Low Priority'), ('NORMAL', 'Standard Turnover'), ('HIGH', 'Urgent / VIP Arrival Today')], default='NORMAL', max_length=20)),
+                ('id', models.UUIDField(default=uuid.uuid4,
+                 editable=False, primary_key=True, serialize=False)),
+                ('task_type', models.CharField(choices=[('CHECKOUT_CLEAN', 'Checkout Deep Clean'), ('STAYOVER_REFRESH', 'Stayover Daily Refresh'), ('INSPECTION', 'Supervisor Quality Inspection'), (
+                    'LINEN_CHANGE', 'Bed Linen & Towel Replacement'), ('DEEP_CLEAN', 'Periodic Deep Sanitization')], default='CHECKOUT_CLEAN', max_length=30)),
+                ('status', models.CharField(choices=[('PENDING', 'Pending Assignment'), ('IN_PROGRESS', 'Cleaning In Progress'), ('INSPECTION_REQUIRED', 'Inspection Required'), (
+                    'COMPLETED', 'Cleaned & Ready'), ('MAINTENANCE_REQUIRED', 'Issue Flagged for Maintenance')], default='PENDING', max_length=30)),
+                ('priority', models.CharField(choices=[('LOW', 'Low Priority'), ('NORMAL', 'Standard Turnover'), (
+                    'HIGH', 'Urgent / VIP Arrival Today')], default='NORMAL', max_length=20)),
                 ('notes', models.TextField(blank=True)),
                 ('started_at', models.DateTimeField(blank=True, null=True)),
                 ('completed_at', models.DateTimeField(blank=True, null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('assigned_to', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='assigned_housekeeping_tasks', to=settings.AUTH_USER_MODEL)),
-                ('inspected_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='inspected_housekeeping_tasks', to=settings.AUTH_USER_MODEL)),
-                ('room', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='housekeeping_tasks', to='core.room')),
+                ('assigned_to', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL,
+                 related_name='assigned_housekeeping_tasks', to=settings.AUTH_USER_MODEL)),
+                ('inspected_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL,
+                 related_name='inspected_housekeeping_tasks', to=settings.AUTH_USER_MODEL)),
+                ('room', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE,
+                 related_name='housekeeping_tasks', to='rooms.room')),
             ],
             options={
                 'ordering': ['-priority', '-created_at'],

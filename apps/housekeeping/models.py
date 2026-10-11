@@ -2,7 +2,7 @@ import uuid
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from core.models import Room
+from apps.rooms.models import Room
 
 
 class HousekeepingTask(models.Model):
@@ -64,7 +64,7 @@ class HousekeepingTask(models.Model):
             self.assigned_to = user
         self.save()
         # Synchronize Room state
-        self.room.housekeeping_status = 'CLEANING'
+        self.room.housekeeping_status = 'IN_PROGRESS'
         self.room.save()
 
     def mark_completed(self, user=None):
@@ -78,8 +78,8 @@ class HousekeepingTask(models.Model):
         self.status = 'COMPLETED'
         self.inspected_by = supervisor
         self.save()
-        self.room.housekeeping_status = 'VACANT_CLEAN'
-        self.room.status = 'AVAILABLE'
+        self.room.housekeeping_status = 'CLEAN'
+        self.room.status = 'VACANT_CLEAN'
         self.room.save()
 
     def __str__(self):

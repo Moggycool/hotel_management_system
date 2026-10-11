@@ -31,6 +31,13 @@ class RoomType(models.Model):
 
 
 class Room(models.Model):
+    HOUSEKEEPING_STATUS_CHOICES = [
+        ('CLEAN', 'Clean'),
+        ('DIRTY', 'Dirty'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('INSPECTION_REQUIRED', 'Inspection Required'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     room_number = models.CharField(max_length=10, unique=True, db_index=True)
     room_type = models.ForeignKey(
@@ -40,6 +47,12 @@ class Room(models.Model):
         max_length=20,
         choices=RoomStatus.choices,
         default=RoomStatus.VACANT_CLEAN,
+        db_index=True,
+    )
+    housekeeping_status = models.CharField(
+        max_length=30,
+        choices=HOUSEKEEPING_STATUS_CHOICES,
+        default='CLEAN',
         db_index=True,
     )
     is_active = models.BooleanField(default=True)
