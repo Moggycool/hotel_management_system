@@ -11,6 +11,7 @@ import { POSTab } from './components/pos/POSTab';
 import { GuestsTab } from './components/guests/GuestsTab';
 import { BillingTab } from './components/billing/BillingTab';
 import { CalendarTab } from './components/calendar/CalendarTab';
+import { DatabaseAdminTab } from './components/database/DatabaseAdminTab';
 import { SettingsTab } from './components/settings/SettingsTab';
 import { NewReservationModal } from './components/reservations/NewReservationModal';
 import { ReservationDetailsModal } from './components/reservations/ReservationDetailsModal';
@@ -80,6 +81,7 @@ const HotelApp: React.FC = () => {
                 onOpenNewReservation={() => handleOpenNewReservation(null)}
                 onSelectReservation={(res) => setSelectedResForModal(res)}
                 onOpenFolioInvoice={(res) => setSelectedResForInvoice(res)}
+                onNavigateToDatabase={() => setActiveTab('database_admin')}
               />
             )}
 
@@ -107,6 +109,8 @@ const HotelApp: React.FC = () => {
                 onBookRoomWithDate={(room, date) => handleOpenNewReservation(room)}
               />
             )}
+
+            {activeTab === 'database_admin' && <DatabaseAdminTab />}
 
             {activeTab === 'settings' && <SettingsTab />}
           </div>

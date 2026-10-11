@@ -14,6 +14,7 @@ import {
   Percent,
   ShieldCheck,
   UtensilsCrossed,
+  Database,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 
@@ -27,6 +28,7 @@ export type ActiveTab =
   | 'guests'
   | 'billing'
   | 'calendar'
+  | 'database_admin'
   | 'settings';
 
 interface SidebarProps {
@@ -74,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     { id: 'guests', label: 'Guest CRM', icon: Users },
     { id: 'billing', label: 'Folio & Billing', icon: Receipt },
     { id: 'calendar', label: 'Occupancy Timeline', icon: CalendarDays },
+    { id: 'database_admin', label: 'Database & Admin', icon: Database },
     { id: 'settings', label: 'Hotel Settings', icon: Settings },
   ];
 

@@ -25,12 +25,14 @@ interface ReservationsTabProps {
   onOpenNewReservation: () => void;
   onSelectReservation: (res: Reservation) => void;
   onOpenFolioInvoice: (res: Reservation) => void;
+  onNavigateToDatabase?: () => void;
 }
 
 export const ReservationsTab: React.FC<ReservationsTabProps> = ({
   onOpenNewReservation,
   onSelectReservation,
   onOpenFolioInvoice,
+  onNavigateToDatabase,
 }) => {
   const {
     reservations,
@@ -209,22 +211,32 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
 
       {/* Django Sync Status Message */}
       {syncStatusMsg && (
-        <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start justify-between gap-3 animate-fadeIn">
-          <div className="flex items-start gap-2">
+        <div className="p-3.5 bg-indigo-50/90 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-start gap-2.5">
             <Database className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">{syncStatusMsg}</p>
+              <p className="font-semibold text-slate-900">{syncStatusMsg}</p>
               <p className="text-[11px] text-indigo-700 mt-0.5">
-                Target endpoint: <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono">http://localhost:8000/api/v1/reservations/</code>.
+                Target endpoint: <code className="bg-indigo-100/80 px-1 py-0.5 rounded font-mono font-medium">http://localhost:8000/api/v1/reservations/</code>. Records remain committed to the local database.
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setSyncStatusMsg(null)}
-            className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-1"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            {onNavigateToDatabase && (
+              <button
+                onClick={onNavigateToDatabase}
+                className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-white border border-indigo-300 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Open Database Admin
+              </button>
+            )}
+            <button
+              onClick={() => setSyncStatusMsg(null)}
+              className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-1.5 py-1"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
