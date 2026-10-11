@@ -113,6 +113,9 @@ export interface Reservation {
   createdAt: string;
   actualCheckInTime?: string;
   actualCheckOutTime?: string;
+  syncedToDatabase?: boolean;
+  databaseSyncError?: string;
+  databaseId?: string;
 }
 
 export interface Guest {

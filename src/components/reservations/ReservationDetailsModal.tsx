@@ -14,9 +14,11 @@ import {
   User,
   BedDouble,
   Clock,
+  Database,
 } from 'lucide-react';
 import { Reservation, FolioItem, PaymentRecord, PaymentMethod } from '../../types/hotel';
 import { useHotel } from '../../context/HotelContext';
+import { hotelApi } from '../../api/hotelApi';
 
 interface ReservationDetailsModalProps {
   reservation: Reservation;
@@ -37,6 +39,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
     recordPayment,
     reservations,
     settings,
+    updateReservationSyncStatus,
   } = useHotel();
 
   // Keep fresh state
@@ -50,6 +53,50 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [payAmount, setPayAmount] = useState<number>(currentRes.balanceDue || 50);
   const [payMethod, setPayMethod] = useState<PaymentMethod>('telebirr');
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const handleSyncToDjango = async () => {
+    setIsSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await hotelApi.syncReservationToDjango({
+        guest_name: currentRes.guestName,
+        guest_email: currentRes.guestEmail,
+        guest_phone: currentRes.guestPhone,
+        room_number: currentRes.roomNumber,
+        room_id: currentRes.roomId,
+        rate_plan_name: 'Standard Flexible Rate',
+        check_in_date: currentRes.checkInDate,
+        check_out_date: currentRes.checkOutDate,
+        adults: currentRes.adults,
+        children: currentRes.children,
+        source: currentRes.source || 'walk_in',
+        special_requests: currentRes.specialRequests,
+        room_rate_total_etb: currentRes.roomRateTotal,
+        vat_etb: currentRes.taxTotal * 0.6,
+        service_charge_etb: currentRes.taxTotal * 0.4,
+        grand_total_etb: currentRes.grandTotal,
+        deposit_paid_etb: currentRes.amountPaid,
+        payment_method: 'telebirr',
+        confirmation_code: currentRes.confirmationCode,
+      });
+
+      if (res.success) {
+        updateReservationSyncStatus(currentRes.id, true, undefined, res.data?.id);
+        setSyncFeedback('✅ Synced to Django Admin & Database!');
+      } else {
+        updateReservationSyncStatus(currentRes.id, false, res.error);
+        setSyncFeedback(`⚠️ Sync failed: ${res.error}`);
+      }
+    } catch (err: any) {
+      updateReservationSyncStatus(currentRes.id, false, err?.message);
+      setSyncFeedback(`⚠️ Sync failed: ${err?.message || 'Server offline'}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleAddCharge = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,15 +141,33 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
         {/* Header */}
         <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono font-bold text-amber-400 text-base">
                 #{currentRes.confirmationCode}
               </span>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${getStatusBadge()} capitalize`}>
                 {currentRes.status.replace('_', ' ')}
               </span>
+              {currentRes.syncedToDatabase ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/40">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Synced to DB
+                </span>
+              ) : (
+                <button
+                  onClick={handleSyncToDjango}
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-200 bg-indigo-900/80 hover:bg-indigo-800 px-2.5 py-0.5 rounded-full border border-indigo-400/40 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Push this reservation to Django admin database"
+                >
+                  <Database className={`w-3 h-3 text-indigo-300 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Syncing...' : 'Sync to Database'}
+                </button>
+              )}
             </div>
             <h3 className="font-bold text-lg text-white mt-0.5">{currentRes.guestName}</h3>
+            {syncFeedback && (
+              <p className="text-[11px] text-amber-300 font-medium mt-1">{syncFeedback}</p>
+            )}
           </div>
           <button
             onClick={onClose}

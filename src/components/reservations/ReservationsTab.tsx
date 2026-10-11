@@ -32,13 +32,57 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
   onSelectReservation,
   onOpenFolioInvoice,
 }) => {
-  const { reservations, searchQuery, checkInReservation, checkOutReservation } = useHotel();
+  const {
+    reservations,
+    searchQuery,
+    checkInReservation,
+    checkOutReservation,
+    updateReservationSyncStatus,
+  } = useHotel();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today_arrivals' | 'today_departures' | 'in_house'>('all');
 
   const todayStr = getRelativeDate(0);
   const [isSyncingWithDjango, setIsSyncingWithDjango] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
+
+  const handleSyncSingle = async (res: Reservation) => {
+    setSyncStatusMsg(null);
+    try {
+      const result = await hotelApi.syncReservationToDjango({
+        guest_name: res.guestName,
+        guest_email: res.guestEmail,
+        guest_phone: res.guestPhone,
+        room_number: res.roomNumber,
+        room_id: res.roomId,
+        rate_plan_name: 'Standard Flexible Rate',
+        check_in_date: res.checkInDate,
+        check_out_date: res.checkOutDate,
+        adults: res.adults,
+        children: res.children,
+        source: res.source || 'walk_in',
+        special_requests: res.specialRequests,
+        room_rate_total_etb: res.roomRateTotal,
+        vat_etb: res.taxTotal * 0.6,
+        service_charge_etb: res.taxTotal * 0.4,
+        grand_total_etb: res.grandTotal,
+        deposit_paid_etb: res.amountPaid,
+        payment_method: 'telebirr',
+        confirmation_code: res.confirmationCode,
+      });
+
+      if (result.success) {
+        updateReservationSyncStatus(res.id, true, undefined, result.data?.id);
+        setSyncStatusMsg(`✅ Successfully synced reservation ${res.confirmationCode} (${res.guestName}) to Django database!`);
+      } else {
+        updateReservationSyncStatus(res.id, false, result.error);
+        setSyncStatusMsg(`⚠️ Could not sync ${res.confirmationCode}: ${result.error}`);
+      }
+    } catch (err: any) {
+      updateReservationSyncStatus(res.id, false, err?.message);
+      setSyncStatusMsg(`⚠️ Sync failed: ${err?.message || 'Server error'}`);
+    }
+  };
 
   const handleSyncAllToDjango = async () => {
     setIsSyncingWithDjango(true);
@@ -59,7 +103,7 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
           check_out_date: res.checkOutDate,
           adults: res.adults,
           children: res.children,
-          source: 'walk_in',
+          source: res.source || 'walk_in',
           special_requests: res.specialRequests,
           room_rate_total_etb: res.roomRateTotal,
           vat_etb: res.taxTotal * 0.6,
@@ -67,24 +111,28 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
           grand_total_etb: res.grandTotal,
           deposit_paid_etb: res.amountPaid,
           payment_method: 'telebirr',
+          confirmation_code: res.confirmationCode,
         });
         if (result.success) {
+          updateReservationSyncStatus(res.id, true, undefined, result.data?.id);
           successCount++;
         } else {
+          updateReservationSyncStatus(res.id, false, result.error);
           failCount++;
         }
-      } catch {
+      } catch (err: any) {
+        updateReservationSyncStatus(res.id, false, err?.message);
         failCount++;
       }
     }
 
     setIsSyncingWithDjango(false);
     if (successCount > 0 && failCount === 0) {
-      setSyncStatusMsg(`✅ Successfully synced all ${successCount} reservation(s) to Django backend & PostgreSQL! Check your Django Admin.`);
+      setSyncStatusMsg(`✅ Successfully synced all ${successCount} reservation(s) to Django backend & database! Check your Django Admin.`);
     } else if (successCount > 0 && failCount > 0) {
       setSyncStatusMsg(`⚠️ Partially synced: ${successCount} succeeded, ${failCount} failed.`);
     } else {
-      setSyncStatusMsg(`ℹ️ Django backend at http://localhost:8000/api/v1/ is currently offline or unreachable. Please start Django in VS Code (\`python manage.py runserver\`). All records remain safely stored in your browser registry.`);
+      setSyncStatusMsg(`ℹ️ Django backend is currently offline or unreachable on port 8000. Start Django in a terminal: python manage.py runserver. All reservations remain safely stored locally.`);
     }
   };
 
@@ -277,9 +325,32 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
                     onClick={() => onSelectReservation(res)}
                     className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                   >
-                    {/* Confirmation Code */}
-                    <td className="p-3.5 font-mono font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                      {res.confirmationCode}
+                    {/* Confirmation Code & DB Sync Badge */}
+                    <td className="p-3.5">
+                      <div className="font-mono font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                        {res.confirmationCode}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1">
+                        {res.syncedToDatabase ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                            title="Synced and present in Django administration & database"
+                          >
+                            <CheckCircle2 className="w-2.5 h-2.5" /> Synced to DB
+                          </span>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSyncSingle(res);
+                            }}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-colors cursor-pointer"
+                            title="Push this reservation to Django backend and database"
+                          >
+                            <Database className="w-2.5 h-2.5" /> Sync to DB
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                     {/* Guest Name & Contact */}

@@ -29,7 +29,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   onClose,
   onCreated,
 }) => {
-  const { rooms, guests, settings, createReservation } = useHotel();
+  const { rooms, guests, settings, createReservation, updateReservationSyncStatus } = useHotel();
 
   // Guest fields
   const [selectedGuestId, setSelectedGuestId] = useState<string>('');
@@ -189,14 +189,18 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
           grand_total_etb: grandTotal,
           deposit_paid_etb: initialDepositAmount,
           payment_method: paymentMethod,
+          confirmation_code: newRes.confirmationCode,
         }).then((syncResult) => {
           if (syncResult.success) {
             console.log('✅ Successfully synced reservation to Django backend & PostgreSQL database:', syncResult.data);
+            updateReservationSyncStatus(newRes.id, true, undefined, syncResult.data?.id);
           } else {
-            console.warn('ℹ️ Django backend offline or port 8000 unreachable. Reservation stored safely in local registry:', syncResult.error);
+            console.warn('ℹ️ Django backend notice:', syncResult.error);
+            updateReservationSyncStatus(newRes.id, false, syncResult.error);
           }
         });
-      } catch (syncErr) {
+      } catch (syncErr: any) {
+        updateReservationSyncStatus(newRes.id, false, syncErr?.message || 'Sync error');
         console.warn('Backend sync bypassed - stored in local state:', syncErr);
       }
 

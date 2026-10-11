@@ -95,6 +95,7 @@ interface HotelContextType {
   addGuest: (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>) => Guest;
   updateGuest: (guestId: string, updates: Partial<Guest>) => void;
   updateSettings: (newSettings: Partial<HotelSettings>) => void;
+  updateReservationSyncStatus: (reservationId: string, synced: boolean, error?: string, databaseId?: string) => void;
   resetToDemoData: () => void;
 
   // Milestone 4: POS & Dining Actions
@@ -858,6 +859,26 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
 
+  const updateReservationSyncStatus = (
+    reservationId: string,
+    synced: boolean,
+    error?: string,
+    databaseId?: string
+  ) => {
+    setReservations((prev) =>
+      prev.map((r) =>
+        r.id === reservationId
+          ? {
+              ...r,
+              syncedToDatabase: synced,
+              databaseSyncError: error,
+              databaseId: databaseId || r.databaseId,
+            }
+          : r
+      )
+    );
+  };
+
   // Milestone 4: POS & Dining Methods
   const createOrder = (data: {
     orderType: OrderType;
@@ -1352,6 +1373,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         addGuest,
         updateGuest,
         updateSettings,
+        updateReservationSyncStatus,
         resetToDemoData,
         createOrder,
         updateOrderItemStatus,
