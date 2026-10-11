@@ -175,3 +175,110 @@ export interface HotelSettings {
   businessDate: string; // Hotel current accounting business date
   nightAuditStatus: 'not_started' | 'in_progress' | 'completed' | 'reopened';
 }
+
+// -------------------------------------------------------------
+// Milestone 4: POS, Restaurant Order Management & Room-Charge
+// -------------------------------------------------------------
+
+export type MenuCategory =
+  | 'traditional'
+  | 'grill_mains'
+  | 'fasting_vegan'
+  | 'beverages'
+  | 'breakfast'
+  | 'desserts';
+
+export type KitchenStation =
+  | 'hot_kitchen'
+  | 'cold_salad'
+  | 'bar_beverage'
+  | 'bakery_dessert';
+
+export interface MenuItem {
+  id: string;
+  code: string; // e.g. "FD-01", "TR-05", "BV-02"
+  name: string;
+  nameAmharic: string;
+  description: string;
+  category: MenuCategory;
+  price: number; // in ETB
+  station: KitchenStation;
+  isFasting: boolean; // Ethiopian Orthodox Fasting (Tsom)
+  isSpicy: boolean; // Mitmita / Awaze / Berbere
+  isVegetarian: boolean;
+  preparationMinutes: number;
+  isAvailable: boolean; // In-stock vs 86'd
+  imageUrl?: string;
+}
+
+export type TableSection = 'indoor_dining' | 'terrace' | 'vip_lounge' | 'bar_lounge';
+
+export type TableStatus = 'available' | 'occupied' | 'reserved' | 'billing';
+
+export interface RestaurantTable {
+  id: string;
+  tableNumber: string; // e.g. "T-01", "T-05", "VIP-1"
+  capacity: number;
+  section: TableSection;
+  status: TableStatus;
+  currentOrderId?: string;
+  assignedWaiter?: string;
+}
+
+export type OrderItemStatus = 'queued' | 'preparing' | 'ready' | 'served' | 'cancelled';
+
+export interface OrderItem {
+  id: string;
+  menuItemId: string;
+  name: string;
+  nameAmharic?: string;
+  quantity: number;
+  unitPrice: number;
+  station: KitchenStation;
+  notes?: string;
+  itemStatus: OrderItemStatus;
+}
+
+export type OrderType = 'dine_in' | 'room_service' | 'takeaway' | 'bar_walkin';
+
+export type OrderStatus =
+  | 'open'
+  | 'sent_to_kitchen'
+  | 'in_preparation'
+  | 'ready'
+  | 'served'
+  | 'settled'
+  | 'posted_to_room'
+  | 'voided';
+
+export interface RestaurantOrder {
+  id: string;
+  orderNumber: string; // e.g. "ORD-1082"
+  kotNumber: string; // e.g. "KOT-304"
+  orderType: OrderType;
+  outlet: string; // e.g. "Addis Dining Room", "Entoto Bar & Lounge", "Lakefront Terrace", "Room Service"
+  tableId?: string;
+  tableNumber?: string;
+  roomId?: string;
+  roomNumber?: string;
+  reservationId?: string;
+  guestName?: string;
+  guestPhone?: string;
+  waiterName: string;
+  covers: number; // Number of guests
+  items: OrderItem[];
+  subtotal: number;
+  serviceCharge: number; // 10%
+  vatAmount: number; // 15%
+  grandTotal: number;
+  status: OrderStatus;
+  paymentMethod?: PaymentMethod | 'room_charge';
+  paymentReference?: string;
+  telebirrTxId?: string;
+  folioChargeId?: string; // Linked FolioItem ID if posted to room
+  createdAt: string;
+  kotSentAt?: string;
+  settledAt?: string;
+  specialInstructions?: string;
+  voidReason?: string;
+}

@@ -7,6 +7,7 @@ import { Milestone1AuditTab } from './components/milestone1/Milestone1AuditTab';
 import { RoomsTab } from './components/rooms/RoomsTab';
 import { ReservationsTab } from './components/reservations/ReservationsTab';
 import { HousekeepingTab } from './components/housekeeping/HousekeepingTab';
+import { POSTab } from './components/pos/POSTab';
 import { GuestsTab } from './components/guests/GuestsTab';
 import { BillingTab } from './components/billing/BillingTab';
 import { CalendarTab } from './components/calendar/CalendarTab';
@@ -83,6 +84,8 @@ const HotelApp: React.FC = () => {
             )}
 
             {activeTab === 'housekeeping' && <HousekeepingTab />}
+
+            {activeTab === 'pos' && <POSTab />}
 
             {activeTab === 'guests' && (
               <GuestsTab

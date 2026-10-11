@@ -15,6 +15,7 @@ import {
   PlusCircle,
   FileText,
   BadgeDollarSign,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Reservation, RoomStatus } from '../../types/hotel';
@@ -64,6 +65,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           >
             <BedDouble className="w-4 h-4" />
             <span>Room Grid</span>
+          </button>
+          <button
+            onClick={() => onNavigateTab('pos')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-400/30 text-orange-200 font-medium text-sm rounded-xl transition-colors cursor-pointer"
+          >
+            <UtensilsCrossed className="w-4 h-4 text-orange-400" />
+            <span>F&B POS (M4)</span>
           </button>
         </div>
       </div>

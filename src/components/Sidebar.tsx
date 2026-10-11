@@ -13,6 +13,7 @@ import {
   Wrench,
   Percent,
   ShieldCheck,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 
@@ -22,6 +23,7 @@ export type ActiveTab =
   | 'rooms'
   | 'reservations'
   | 'housekeeping'
+  | 'pos'
   | 'guests'
   | 'billing'
   | 'calendar'
@@ -54,6 +56,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       icon: BookOpenCheck,
       badge: pendingArrivals > 0 ? pendingArrivals : undefined,
       badgeColor: 'bg-indigo-100 text-indigo-700',
+    },
+    {
+      id: 'pos',
+      label: 'POS & Dining (M4)',
+      icon: UtensilsCrossed,
+      badge: metrics.pendingKitchenOrdersCount > 0 ? metrics.pendingKitchenOrdersCount : undefined,
+      badgeColor: 'bg-orange-100 text-orange-800',
     },
     {
       id: 'housekeeping',

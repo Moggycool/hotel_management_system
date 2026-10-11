@@ -36,6 +36,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
     addFolioCharge,
     recordPayment,
     reservations,
+    settings,
   } = useHotel();
 
   // Keep fresh state
@@ -290,7 +291,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
                       <td className="p-2.5 font-medium text-slate-800">{item.description}</td>
                       <td className="p-2.5 capitalize text-slate-500">{item.category}</td>
                       <td className="p-2.5 text-right font-mono font-bold text-slate-900">
-                        ${item.amount.toFixed(2)}
+                        {item.amount.toLocaleString()} {settings.currency}
                       </td>
                     </tr>
                   ))}
@@ -303,7 +304,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
           {currentRes.balanceDue > 0 && currentRes.status !== 'cancelled' && (
             <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div>
-                <span className="font-bold text-amber-950 block">Outstanding Balance: ${currentRes.balanceDue.toFixed(2)}</span>
+                <span className="font-bold text-amber-950 block">Outstanding Balance: {currentRes.balanceDue.toLocaleString()} {settings.currency}</span>
                 <span className="text-[11px] text-amber-800">Settle balance before or during check-out</span>
               </div>
               <button

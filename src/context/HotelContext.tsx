@@ -13,6 +13,14 @@ import {
   PaymentMethod,
   StaffRole,
   AuditLogEntry,
+  MenuItem,
+  RestaurantTable,
+  RestaurantOrder,
+  OrderItem,
+  OrderType,
+  OrderStatus,
+  OrderItemStatus,
+  TableStatus,
 } from '../types/hotel';
 import {
   initialRooms,
@@ -22,6 +30,9 @@ import {
   initialMaintenanceTickets,
   initialHotelSettings,
   initialAuditLogs,
+  initialMenuItems,
+  initialRestaurantTables,
+  initialRestaurantOrders,
   getRelativeDate,
 } from '../data/initialData';
 
@@ -38,6 +49,11 @@ interface HotelContextType {
   addAuditLog: (entry: Omit<AuditLogEntry, 'id' | 'timestamp'>) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+
+  // Milestone 4: POS & Restaurant State
+  menuItems: MenuItem[];
+  tables: RestaurantTable[];
+  orders: RestaurantOrder[];
 
   // Actions
   checkInReservation: (reservationId: string) => void;
@@ -81,6 +97,38 @@ interface HotelContextType {
   updateSettings: (newSettings: Partial<HotelSettings>) => void;
   resetToDemoData: () => void;
 
+  // Milestone 4: POS & Dining Actions
+  createOrder: (data: {
+    orderType: OrderType;
+    outlet: string;
+    tableId?: string;
+    tableNumber?: string;
+    roomId?: string;
+    roomNumber?: string;
+    reservationId?: string;
+    guestName?: string;
+    guestPhone?: string;
+    covers: number;
+    items: { menuItem: MenuItem; quantity: number; notes?: string }[];
+    specialInstructions?: string;
+    waiterName?: string;
+    sendToKitchenImmediately?: boolean;
+  }) => RestaurantOrder;
+  updateOrderItemStatus: (orderId: string, orderItemId: string, status: OrderItemStatus) => void;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  postOrderToRoomFolio: (orderId: string, reservationId: string) => { success: boolean; message: string; folioChargeId?: string };
+  settleOrderDirectly: (
+    orderId: string,
+    paymentMethod: PaymentMethod,
+    reference?: string,
+    telebirrTxId?: string
+  ) => void;
+  voidOrder: (orderId: string, reason: string) => void;
+  toggleMenuItemAvailability: (menuItemId: string) => void;
+  updateMenuItem: (menuItemId: string, updates: Partial<MenuItem>) => void;
+  addMenuItem: (item: Omit<MenuItem, 'id'>) => MenuItem;
+  updateTableStatus: (tableId: string, status: TableStatus, assignedWaiter?: string) => void;
+
   // Computed Metrics
   metrics: {
     totalRooms: number;
@@ -96,6 +144,9 @@ interface HotelContextType {
     pendingHousekeepingCount: number;
     openMaintenanceCount: number;
     averageDailyRate: number;
+    activeOrdersCount: number;
+    pendingKitchenOrdersCount: number;
+    todayDiningRevenue: number;
   };
 }
 
@@ -108,6 +159,9 @@ const STORAGE_KEYS = {
   HOUSEKEEPING: 'gh_hotel_housekeeping_v1',
   MAINTENANCE: 'gh_hotel_maintenance_v1',
   SETTINGS: 'gh_hotel_settings_v1',
+  MENU: 'gh_hotel_menu_v1',
+  TABLES: 'gh_hotel_tables_v1',
+  ORDERS: 'gh_hotel_orders_v1',
 };
 
 export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -162,6 +216,34 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return saved ? JSON.parse(saved) : initialHotelSettings;
     } catch {
       return initialHotelSettings;
+    }
+  });
+
+  // Milestone 4: POS & Restaurant State
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.MENU);
+      return saved ? JSON.parse(saved) : initialMenuItems;
+    } catch {
+      return initialMenuItems;
+    }
+  });
+
+  const [tables, setTables] = useState<RestaurantTable[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.TABLES);
+      return saved ? JSON.parse(saved) : initialRestaurantTables;
+    } catch {
+      return initialRestaurantTables;
+    }
+  });
+
+  const [orders, setOrders] = useState<RestaurantOrder[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
+      return saved ? JSON.parse(saved) : initialRestaurantOrders;
+    } catch {
+      return initialRestaurantOrders;
     }
   });
 
@@ -229,6 +311,24 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch {}
   }, [settings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.MENU, JSON.stringify(menuItems));
+    } catch {}
+  }, [menuItems]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.TABLES, JSON.stringify(tables));
+    } catch {}
+  }, [tables]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+    } catch {}
+  }, [orders]);
 
   // Check In action
   const checkInReservation = (reservationId: string) => {
@@ -758,6 +858,381 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
 
+  // Milestone 4: POS & Dining Methods
+  const createOrder = (data: {
+    orderType: OrderType;
+    outlet: string;
+    tableId?: string;
+    tableNumber?: string;
+    roomId?: string;
+    roomNumber?: string;
+    reservationId?: string;
+    guestName?: string;
+    guestPhone?: string;
+    covers: number;
+    items: { menuItem: MenuItem; quantity: number; notes?: string }[];
+    specialInstructions?: string;
+    waiterName?: string;
+    sendToKitchenImmediately?: boolean;
+  }): RestaurantOrder => {
+    const subtotal = data.items.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+    const serviceCharge = parseFloat((subtotal * (settings.serviceChargePercent / 100)).toFixed(2));
+    const vatAmount = parseFloat(((subtotal + serviceCharge) * (settings.vatRatePercent / 100)).toFixed(2));
+    const grandTotal = parseFloat((subtotal + serviceCharge + vatAmount).toFixed(2));
+
+    const orderId = `ord-${Date.now()}`;
+    const seqNum = Math.floor(1000 + Math.random() * 9000);
+    const orderNumber = `ORD-2026-${seqNum}`;
+    const kotNumber = `KOT-${Math.floor(100 + Math.random() * 900)}`;
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    const orderItems: OrderItem[] = data.items.map((i, idx) => ({
+      id: `oi-${orderId}-${idx + 1}`,
+      menuItemId: i.menuItem.id,
+      name: i.menuItem.name,
+      nameAmharic: i.menuItem.nameAmharic,
+      quantity: i.quantity,
+      unitPrice: i.menuItem.price,
+      station: i.menuItem.station,
+      notes: i.notes,
+      itemStatus: data.sendToKitchenImmediately ? 'preparing' : 'queued',
+    }));
+
+    const newOrder: RestaurantOrder = {
+      id: orderId,
+      orderNumber,
+      kotNumber,
+      orderType: data.orderType,
+      outlet: data.outlet,
+      tableId: data.tableId,
+      tableNumber: data.tableNumber,
+      roomId: data.roomId,
+      roomNumber: data.roomNumber,
+      reservationId: data.reservationId,
+      guestName: data.guestName,
+      guestPhone: data.guestPhone,
+      waiterName: data.waiterName || 'Staff Waiter',
+      covers: data.covers || 1,
+      items: orderItems,
+      subtotal,
+      serviceCharge,
+      vatAmount,
+      grandTotal,
+      status: data.sendToKitchenImmediately ? 'sent_to_kitchen' : 'open',
+      createdAt: nowIso,
+      kotSentAt: data.sendToKitchenImmediately ? nowIso : undefined,
+      specialInstructions: data.specialInstructions,
+    };
+
+    setOrders((prev) => [newOrder, ...prev]);
+
+    // Update table status if dine-in
+    if (data.tableId) {
+      setTables((prev) =>
+        prev.map((t) =>
+          t.id === data.tableId
+            ? { ...t, status: 'occupied', currentOrderId: orderId, assignedWaiter: data.waiterName || t.assignedWaiter }
+            : t
+        )
+      );
+    }
+
+    addAuditLog({
+      actorName: data.waiterName || 'Staff Waiter',
+      actorRole: currentRole,
+      action: 'POS_ORDER_CREATED',
+      module: 'FOLIO',
+      details: `Created new ${data.orderType.replace('_', ' ')} order ${orderNumber} (${data.outlet}${data.tableNumber ? ` Table ${data.tableNumber}` : ''}) for ${grandTotal.toLocaleString()} ETB.`,
+      severity: 'info',
+      ipAddress: '192.168.1.35',
+    });
+
+    return newOrder;
+  };
+
+  const updateOrderItemStatus = (orderId: string, orderItemId: string, status: OrderItemStatus) => {
+    setOrders((prev) =>
+      prev.map((order) => {
+        if (order.id !== orderId) return order;
+
+        const updatedItems = order.items.map((item) =>
+          item.id === orderItemId ? { ...item, itemStatus: status } : item
+        );
+
+        // Check overall order status transition
+        const allReady = updatedItems.every((i) => i.itemStatus === 'ready' || i.itemStatus === 'served' || i.itemStatus === 'cancelled');
+        const allServed = updatedItems.every((i) => i.itemStatus === 'served' || i.itemStatus === 'cancelled');
+        const anyPreparing = updatedItems.some((i) => i.itemStatus === 'preparing');
+
+        let nextOrderStatus = order.status;
+        if (order.status !== 'settled' && order.status !== 'posted_to_room' && order.status !== 'voided') {
+          if (allServed) {
+            nextOrderStatus = 'served';
+          } else if (allReady) {
+            nextOrderStatus = 'ready';
+          } else if (anyPreparing) {
+            nextOrderStatus = 'in_preparation';
+          }
+        }
+
+        return {
+          ...order,
+          items: updatedItems,
+          status: nextOrderStatus,
+        };
+      })
+    );
+  };
+
+  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
+    setOrders((prev) =>
+      prev.map((o) => {
+        if (o.id !== orderId) return o;
+        const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        return {
+          ...o,
+          status,
+          kotSentAt: status === 'sent_to_kitchen' && !o.kotSentAt ? nowIso : o.kotSentAt,
+          settledAt: (status === 'settled' || status === 'posted_to_room') && !o.settledAt ? nowIso : o.settledAt,
+        };
+      })
+    );
+
+    // If order was voided or settled, free the table
+    if (status === 'voided' || status === 'settled') {
+      const order = orders.find((o) => o.id === orderId);
+      if (order?.tableId) {
+        setTables((prev) =>
+          prev.map((t) =>
+            t.id === order.tableId ? { ...t, status: 'available', currentOrderId: undefined } : t
+          )
+        );
+      }
+    }
+  };
+
+  const postOrderToRoomFolio = (
+    orderId: string,
+    reservationId: string
+  ): { success: boolean; message: string; folioChargeId?: string } => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) {
+      return { success: false, message: 'Order not found.' };
+    }
+    const reservation = reservations.find((r) => r.id === reservationId);
+    if (!reservation) {
+      return { success: false, message: 'Reservation not found.' };
+    }
+    if (reservation.status !== 'checked_in') {
+      return {
+        success: false,
+        message: `Cannot post charges to room ${reservation.roomNumber}: guest is not currently checked in (Status: ${reservation.status}).`,
+      };
+    }
+
+    const folioChargeId = `f-pos-${Date.now()}`;
+    const itemsSummary = order.items.map((i) => `${i.quantity}x ${i.name}`).join(', ');
+    const folioDescription = `Dining POS: ${order.orderNumber} (${order.outlet}${order.tableNumber ? ` Table ${order.tableNumber}` : ''}) - ${itemsSummary}`;
+
+    // Add folio charge to the reservation
+    const newFolioItem: FolioItem = {
+      id: folioChargeId,
+      date: new Date().toISOString().split('T')[0],
+      description: folioDescription,
+      category: 'dining',
+      amount: order.grandTotal,
+    };
+
+    setReservations((prev) =>
+      prev.map((res) => {
+        if (res.id === reservationId) {
+          const updatedCharges = [...res.folioCharges, newFolioItem];
+          const newGrandTotal = parseFloat((res.grandTotal + order.grandTotal).toFixed(2));
+          const newBalanceDue = parseFloat((res.balanceDue + order.grandTotal).toFixed(2));
+          return {
+            ...res,
+            folioCharges: updatedCharges,
+            grandTotal: newGrandTotal,
+            balanceDue: newBalanceDue,
+          };
+        }
+        return res;
+      })
+    );
+
+    // Update order status
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: 'posted_to_room',
+              paymentMethod: 'room_charge',
+              paymentReference: `POSTED-ROOM-${reservation.roomNumber}`,
+              reservationId: reservation.id,
+              roomId: reservation.roomId,
+              roomNumber: reservation.roomNumber,
+              guestName: reservation.guestName,
+              folioChargeId: folioChargeId,
+              settledAt: nowIso,
+            }
+          : o
+      )
+    );
+
+    // If order had an assigned table, release table to available
+    if (order.tableId) {
+      setTables((prev) =>
+        prev.map((tbl) =>
+          tbl.id === order.tableId
+            ? { ...tbl, status: 'available', currentOrderId: undefined }
+            : tbl
+        )
+      );
+    }
+
+    // Add audit log
+    addAuditLog({
+      actorName: 'Tigist Alemu',
+      actorRole: currentRole,
+      action: 'FOLIO_ROOM_CHARGE_POSTED',
+      module: 'FOLIO',
+      details: `Posted F&B dining charge of ${order.grandTotal.toLocaleString()} ETB for order ${order.orderNumber} to Room ${reservation.roomNumber} (${reservation.guestName}).`,
+      severity: 'info',
+      ipAddress: '192.168.1.44',
+    });
+
+    return {
+      success: true,
+      message: `Charge of ${order.grandTotal.toLocaleString()} ETB posted to Room ${reservation.roomNumber} (${reservation.guestName}) folio.`,
+      folioChargeId,
+    };
+  };
+
+  const settleOrderDirectly = (
+    orderId: string,
+    paymentMethod: PaymentMethod,
+    reference?: string,
+    telebirrTxId?: string
+  ) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: 'settled',
+              paymentMethod,
+              paymentReference: reference || `SETTLED-${Date.now().toString().slice(-6)}`,
+              telebirrTxId,
+              settledAt: nowIso,
+            }
+          : o
+      )
+    );
+
+    // If order has table, release it
+    if (order.tableId) {
+      setTables((prev) =>
+        prev.map((t) =>
+          t.id === order.tableId
+            ? { ...t, status: 'available', currentOrderId: undefined }
+            : t
+        )
+      );
+    }
+
+    addAuditLog({
+      actorName: 'Kenenisa Desta',
+      actorRole: currentRole,
+      action: 'POS_ORDER_SETTLED',
+      module: 'FOLIO',
+      details: `Settled ${order.orderNumber} (${order.grandTotal.toLocaleString()} ETB) via ${paymentMethod.toUpperCase()}${telebirrTxId ? ` (Tx: ${telebirrTxId})` : ''}.`,
+      severity: 'info',
+      ipAddress: '192.168.1.44',
+    });
+  };
+
+  const voidOrder = (orderId: string, reason: string) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: 'voided',
+              voidReason: reason,
+            }
+          : o
+      )
+    );
+
+    if (order.tableId) {
+      setTables((prev) =>
+        prev.map((t) =>
+          t.id === order.tableId
+            ? { ...t, status: 'available', currentOrderId: undefined }
+            : t
+        )
+      );
+    }
+
+    addAuditLog({
+      actorName: 'Yonas Haile',
+      actorRole: currentRole,
+      action: 'POS_ORDER_VOIDED',
+      module: 'FOLIO',
+      details: `Voided order ${order.orderNumber}. Reason: ${reason}.`,
+      severity: 'warning',
+      ipAddress: '192.168.1.25',
+    });
+  };
+
+  const toggleMenuItemAvailability = (menuItemId: string) => {
+    setMenuItems((prev) =>
+      prev.map((item) =>
+        item.id === menuItemId ? { ...item, isAvailable: !item.isAvailable } : item
+      )
+    );
+  };
+
+  const updateMenuItem = (menuItemId: string, updates: Partial<MenuItem>) => {
+    setMenuItems((prev) =>
+      prev.map((item) => (item.id === menuItemId ? { ...item, ...updates } : item))
+    );
+  };
+
+  const addMenuItem = (itemData: Omit<MenuItem, 'id'>): MenuItem => {
+    const newItem: MenuItem = {
+      ...itemData,
+      id: `menu-custom-${Date.now()}`,
+    };
+    setMenuItems((prev) => [...prev, newItem]);
+    return newItem;
+  };
+
+  const updateTableStatus = (tableId: string, status: TableStatus, assignedWaiter?: string) => {
+    setTables((prev) =>
+      prev.map((t) =>
+        t.id === tableId
+          ? {
+              ...t,
+              status,
+              assignedWaiter: assignedWaiter !== undefined ? assignedWaiter : t.assignedWaiter,
+              currentOrderId: status === 'available' ? undefined : t.currentOrderId,
+            }
+          : t
+      )
+    );
+  };
+
   const resetToDemoData = () => {
     localStorage.removeItem(STORAGE_KEYS.ROOMS);
     localStorage.removeItem(STORAGE_KEYS.RESERVATIONS);
@@ -765,12 +1240,18 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     localStorage.removeItem(STORAGE_KEYS.HOUSEKEEPING);
     localStorage.removeItem(STORAGE_KEYS.MAINTENANCE);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    localStorage.removeItem(STORAGE_KEYS.MENU);
+    localStorage.removeItem(STORAGE_KEYS.TABLES);
+    localStorage.removeItem(STORAGE_KEYS.ORDERS);
     setRooms(initialRooms);
     setReservations(initialReservations);
     setGuests(initialGuests);
     setHousekeepingTasks(initialHousekeepingTasks);
     setMaintenanceTickets(initialMaintenanceTickets);
     setSettings(initialHotelSettings);
+    setMenuItems(initialMenuItems);
+    setTables(initialRestaurantTables);
+    setOrders(initialRestaurantOrders);
   };
 
   // Compute metrics
@@ -804,6 +1285,19 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ? Math.round(occupiedRoomsData.reduce((acc, r) => acc + r.pricePerNight, 0) / occupiedRoomsData.length)
       : 290;
 
+  // Milestone 4 POS metrics
+  const activeOrdersCount = orders.filter(
+    (o) => o.status !== 'settled' && o.status !== 'posted_to_room' && o.status !== 'voided'
+  ).length;
+
+  const pendingKitchenOrdersCount = orders.filter(
+    (o) => o.status === 'sent_to_kitchen' || o.status === 'in_preparation'
+  ).length;
+
+  const todayDiningRevenue = orders
+    .filter((o) => (o.status === 'settled' || o.status === 'posted_to_room') && o.createdAt.startsWith(todayStr))
+    .reduce((sum, o) => sum + o.grandTotal, 0);
+
   const metrics = {
     totalRooms,
     occupiedRooms,
@@ -818,6 +1312,9 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     pendingHousekeepingCount,
     openMaintenanceCount,
     averageDailyRate,
+    activeOrdersCount,
+    pendingKitchenOrdersCount,
+    todayDiningRevenue,
   };
 
   return (
@@ -835,6 +1332,9 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         addAuditLog,
         searchQuery,
         setSearchQuery,
+        menuItems,
+        tables,
+        orders,
         checkInReservation,
         checkOutReservation,
         createReservation,
@@ -853,6 +1353,16 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateGuest,
         updateSettings,
         resetToDemoData,
+        createOrder,
+        updateOrderItemStatus,
+        updateOrderStatus,
+        postOrderToRoomFolio,
+        settleOrderDirectly,
+        voidOrder,
+        toggleMenuItemAvailability,
+        updateMenuItem,
+        addMenuItem,
+        updateTableStatus,
         metrics,
       }}
     >
