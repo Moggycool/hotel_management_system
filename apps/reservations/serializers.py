@@ -3,8 +3,8 @@ from decimal import Decimal
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.guests.models import Guest, IDType
-from apps.rooms.models import Room, RatePlan
+from apps.guests.models import Guest, IDType, VIPTier
+from apps.rooms.models import Room, RoomType, RatePlan, RoomStatus
 from apps.reservations.models import Reservation, RoomHold, BookingSource, ReservationStatus
 
 
@@ -19,11 +19,15 @@ class ReservationSerializer(serializers.ModelSerializer):
     rate_plan_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
     payment_method = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
+    # Tolerant choices (accepts 'walk_in', 'WALK_IN', 'confirmed', 'CONFIRMED', etc.)
+    source = serializers.CharField(required=False, default=BookingSource.WALK_IN)
+    status = serializers.CharField(required=False, default=ReservationStatus.CONFIRMED)
+
     # Foreign keys made optional for input when flat fields are provided
     guest = serializers.PrimaryKeyRelatedField(queryset=Guest.objects.all(), required=False)
     room = serializers.PrimaryKeyRelatedField(queryset=Room.objects.all(), required=False)
     rate_plan = serializers.PrimaryKeyRelatedField(queryset=RatePlan.objects.all(), required=False)
-    confirmation_code = serializers.CharField(required=False)
+    confirmation_code = serializers.CharField(required=False, allow_blank=True)
 
     # Read-only enrichments
     guest_name_display = serializers.CharField(source='guest.full_name', read_only=True)
@@ -36,6 +40,23 @@ class ReservationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
         fields = '__all__'
+        extra_kwargs = {
+            'confirmation_code': {'validators': []},  # Disable auto-unique validator to allow upsert/re-sync
+        }
+
+    def validate_source(self, value):
+        if not value:
+            return BookingSource.WALK_IN
+        v = str(value).upper().replace('-', '_').replace(' ', '_')
+        valid = [c[0] for c in BookingSource.choices]
+        return v if v in valid else BookingSource.WALK_IN
+
+    def validate_status(self, value):
+        if not value:
+            return ReservationStatus.CONFIRMED
+        v = str(value).upper().replace('-', '_').replace(' ', '_')
+        valid = [c[0] for c in ReservationStatus.choices]
+        return v if v in valid else ReservationStatus.CONFIRMED
 
     def create(self, validated_data):
         # Extract frontend helper fields
@@ -55,6 +76,8 @@ class ReservationSerializer(serializers.ModelSerializer):
                 guest = Guest.objects.filter(phone_number=guest_phone).first()
             if not guest and guest_email:
                 guest = Guest.objects.filter(email=guest_email).first()
+            if not guest and guest_name:
+                guest = Guest.objects.filter(full_name=guest_name).first()
             if not guest:
                 id_type_choice = IDType.FAYDA
                 for choice in IDType.values:
@@ -69,18 +92,39 @@ class ReservationSerializer(serializers.ModelSerializer):
                     id_type=id_type_choice,
                     id_number=id_number_val,
                     nationality='Ethiopian',
+                    vip_tier=VIPTier.REGULAR,
                 )
             validated_data['guest'] = guest
 
-        # 2. Resolve Room
+        # 2. Resolve Room (with auto-provision if room number doesn't exist yet)
         room = validated_data.get('room')
         if not room:
             if room_number_val:
-                # Strip 'room-' prefix if sent from frontend
-                clean_num = room_number_val.replace('room-', '').strip()
+                clean_num = str(room_number_val).replace('room-', '').strip()
                 room = Room.objects.filter(room_number=clean_num).first()
                 if not room:
                     room = Room.objects.filter(room_number__icontains=clean_num).first()
+                if not room:
+                    # Automatically provision physical room in database
+                    r_type = RoomType.objects.first()
+                    if not r_type:
+                        r_type = RoomType.objects.create(
+                            name='Standard King',
+                            name_amharic='ስታንዳርድ ኪንግ',
+                            base_price_etb=Decimal('3500.00'),
+                            description='Standard Room at Arbaminch Tourist Hotel',
+                        )
+                    floor_num = 1
+                    try:
+                        floor_num = int(clean_num[0])
+                    except (ValueError, IndexError):
+                        pass
+                    room = Room.objects.create(
+                        room_number=clean_num,
+                        room_type=r_type,
+                        floor=floor_num,
+                        status=RoomStatus.OCCUPIED if validated_data.get('status') == 'CHECKED_IN' else RoomStatus.VACANT_CLEAN,
+                    )
             if not room:
                 room = Room.objects.first()
             validated_data['room'] = room
@@ -100,8 +144,16 @@ class ReservationSerializer(serializers.ModelSerializer):
                 )
             validated_data['rate_plan'] = rate_plan
 
-        # 4. Confirmation Code
-        if not validated_data.get('confirmation_code'):
+        # 4. Confirmation Code Handling (Upsert if exists)
+        code = validated_data.get('confirmation_code')
+        if code:
+            existing_res = Reservation.objects.filter(confirmation_code=code).first()
+            if existing_res:
+                for attr, val in validated_data.items():
+                    setattr(existing_res, attr, val)
+                existing_res.save()
+                return existing_res
+        else:
             code = f"ARB-2026-{random.randint(1000, 9999)}"
             while Reservation.objects.filter(confirmation_code=code).exists():
                 code = f"ARB-2026-{random.randint(1000, 9999)}"

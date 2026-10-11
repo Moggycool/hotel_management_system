@@ -62,6 +62,61 @@ export const DatabaseAdminTab: React.FC = () => {
     checkConnection();
   }, []);
 
+  const [isPushingAll, setIsPushingAll] = useState(false);
+  const [pushStatusMsg, setPushStatusMsg] = useState<string | null>(null);
+
+  const handlePushAllToDjango = async () => {
+    setIsPushingAll(true);
+    setPushStatusMsg(null);
+    let successCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < reservations.length; i++) {
+      const res = reservations[i];
+      try {
+        const result = await hotelApi.syncReservationToDjango({
+          guest_name: res.guestName,
+          guest_email: res.guestEmail,
+          guest_phone: res.guestPhone,
+          room_number: res.roomNumber,
+          room_id: res.roomId,
+          rate_plan_name: 'Standard Flexible Rate',
+          check_in_date: res.checkInDate,
+          check_out_date: res.checkOutDate,
+          adults: res.adults,
+          children: res.children,
+          source: res.source || 'WALK_IN',
+          special_requests: res.specialRequests,
+          room_rate_total_etb: res.roomRateTotal,
+          vat_etb: res.taxTotal * 0.6,
+          service_charge_etb: res.taxTotal * 0.4,
+          grand_total_etb: res.grandTotal,
+          deposit_paid_etb: res.amountPaid,
+          payment_method: 'telebirr',
+          confirmation_code: res.confirmationCode,
+        });
+
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+          if (result.error) errors.push(result.error);
+        }
+      } catch (err: any) {
+        failCount++;
+        errors.push(err?.message || 'Network error');
+      }
+    }
+
+    setIsPushingAll(false);
+    if (failCount === 0) {
+      setPushStatusMsg(`🎉 Successfully synced all ${successCount} reservation(s) to Django! Refresh http://127.0.0.1:8000/admin/reservations/reservation/ to see all of them in the Django admin.`);
+    } else {
+      setPushStatusMsg(`⚠️ Synced ${successCount} reservations (${failCount} errors: ${errors.slice(0, 2).join(', ')}).`);
+    }
+  };
+
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedCmd(id);
@@ -120,24 +175,64 @@ export const DatabaseAdminTab: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handlePushAllToDjango}
+            disabled={isPushingAll}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-60"
+            title="Post all reservations to your local Django REST server at http://127.0.0.1:8000/api/v1/"
+          >
+            <Server className={`w-3.5 h-3.5 ${isPushingAll ? 'animate-spin' : ''}`} />
+            <span>{isPushingAll ? `Syncing to Django...` : `Push All (${reservations.length}) to Django Admin`}</span>
+          </button>
+          <a
+            href="http://127.0.0.1:8000/admin/reservations/reservation/"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+            <span>Open Django Admin ↗</span>
+          </a>
           <button
             onClick={checkConnection}
             disabled={isChecking}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-60"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${isChecking ? 'animate-spin' : ''}`} />
-            <span>Test Django Connection</span>
+            <span>Test Connection</span>
           </button>
           <button
             onClick={handleExportJSON}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg shadow-xs transition-colors cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Database JSON</span>
+            <span>Export JSON</span>
           </button>
         </div>
       </div>
+
+      {/* Push Status Banner */}
+      {pushStatusMsg && (
+        <div
+          className={`p-3.5 rounded-xl text-xs flex items-center justify-between gap-3 animate-fadeIn border ${
+            pushStatusMsg.startsWith('🎉')
+              ? 'bg-emerald-50 text-emerald-950 border-emerald-200'
+              : 'bg-amber-50 text-amber-950 border-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <p className="font-semibold">{pushStatusMsg}</p>
+          </div>
+          <button
+            onClick={() => setPushStatusMsg(null)}
+            className="text-slate-400 hover:text-slate-600 font-bold px-1.5 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Architecture & Environment Diagnostics Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

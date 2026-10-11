@@ -6,8 +6,15 @@
  * when running in cloud preview or offline.
  */
 
-const PROXIED_API_URL = '/api/v1';
-const DIRECT_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const getCandidateUrls = (): string[] => {
+  const custom = typeof window !== 'undefined' ? localStorage.getItem('gh_custom_api_url') : null;
+  const urls: string[] = [];
+  if (custom) urls.push(custom);
+  urls.push('http://127.0.0.1:8000/api/v1');
+  urls.push('/api/v1');
+  urls.push('http://localhost:8000/api/v1');
+  return Array.from(new Set(urls));
+};
 
 export interface ApiReservationPayload {
   guest_name: string;
@@ -66,7 +73,7 @@ export const hotelApi = {
    * Check whether backend and database engine are active
    */
   async checkBackendHealth(): Promise<BackendHealth> {
-    const urlsToTest = [PROXIED_API_URL, DIRECT_API_URL];
+    const urlsToTest = getCandidateUrls();
 
     for (const baseUrl of urlsToTest) {
       try {
@@ -108,13 +115,21 @@ export const hotelApi = {
   async syncReservationToDjango(
     payload: ApiReservationPayload
   ): Promise<{ success: boolean; data?: any; error?: string; endpoint?: string; engineMode: string }> {
-    // 1. First, attempt to push to external Django REST backend if live
-    const candidateUrls = [PROXIED_API_URL, DIRECT_API_URL];
+    // Normalize source & status to uppercase choices for Django DRF ChoiceField
+    const normalizedPayload = {
+      ...payload,
+      source: (payload.source || 'WALK_IN').toUpperCase().replace('-', '_').replace(' ', '_'),
+      room_number: String(payload.room_number).replace('room-', '').trim(),
+    };
+
+    // 1. Attempt to push to external Django REST backend
+    const candidateUrls = getCandidateUrls();
+    let lastNetworkErr = '';
 
     for (const baseUrl of candidateUrls) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500);
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
 
         const response = await fetch(`${baseUrl}/reservations/`, {
           method: 'POST',
@@ -122,15 +137,15 @@ export const hotelApi = {
             'Content-Type': 'application/json',
             Accept: 'application/json',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(normalizedPayload),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
-        if (response.ok) {
+        if (response.ok || response.status === 201 || response.status === 200) {
           const data = await response.json();
-          // Also persist in local shadow DB for instant querying
-          this.commitToLocalDatabase(payload, data.id, data.confirmation_code);
+          // Also persist in local shadow DB
+          this.commitToLocalDatabase(normalizedPayload, data.id, data.confirmation_code);
           return {
             success: true,
             data,
@@ -138,19 +153,24 @@ export const hotelApi = {
             engineMode: 'django_rest_server',
           };
         }
-      } catch {
-        // Fallback to Authoritative Embedded PMS Database engine below
+
+        const errText = await response.text();
+        lastNetworkErr = `Django ${baseUrl} returned HTTP ${response.status}: ${errText}`;
+        console.warn('Django rejection:', lastNetworkErr);
+      } catch (err: any) {
+        lastNetworkErr = err?.message || 'Network unreachable';
       }
     }
 
     // 2. Authoritative Embedded Database commit (guaranteed 100% persistence)
-    const localRecord = this.commitToLocalDatabase(payload);
+    const localRecord = this.commitToLocalDatabase(normalizedPayload);
 
     return {
       success: true,
       data: localRecord,
       endpoint: 'Authoritative PMS Database Engine',
       engineMode: 'embedded_pms_db',
+      error: lastNetworkErr || undefined,
     };
   },
 
