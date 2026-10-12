@@ -10,6 +10,7 @@ import { HousekeepingTab } from './components/housekeeping/HousekeepingTab';
 import { POSTab } from './components/pos/POSTab';
 import { GuestsTab } from './components/guests/GuestsTab';
 import { BillingTab } from './components/billing/BillingTab';
+import { NightAuditTab } from './components/nightaudit/NightAuditTab';
 import { CalendarTab } from './components/calendar/CalendarTab';
 import { DatabaseAdminTab } from './components/database/DatabaseAdminTab';
 import { SettingsTab } from './components/settings/SettingsTab';
@@ -99,6 +100,13 @@ const HotelApp: React.FC = () => {
             {activeTab === 'billing' && (
               <BillingTab
                 onOpenFolioInvoice={(res) => setSelectedResForInvoice(res)}
+                onSelectReservation={(res) => setSelectedResForModal(res)}
+              />
+            )}
+
+            {activeTab === 'night_audit' && (
+              <NightAuditTab
+                onNavigateTab={(tab) => setActiveTab(tab)}
                 onSelectReservation={(res) => setSelectedResForModal(res)}
               />
             )}

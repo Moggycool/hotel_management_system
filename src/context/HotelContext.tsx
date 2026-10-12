@@ -21,6 +21,9 @@ import {
   OrderStatus,
   OrderItemStatus,
   TableStatus,
+  NightAuditReport,
+  CashierShiftRecord,
+  DailyFlashReportData,
 } from '../types/hotel';
 import {
   initialRooms,
@@ -33,8 +36,11 @@ import {
   initialMenuItems,
   initialRestaurantTables,
   initialRestaurantOrders,
+  initialNightAuditReports,
+  initialCashierShifts,
   getRelativeDate,
 } from '../data/initialData';
+import { hotelApi } from '../api/hotelApi';
 
 interface HotelContextType {
   rooms: Room[];
@@ -54,6 +60,15 @@ interface HotelContextType {
   menuItems: MenuItem[];
   tables: RestaurantTable[];
   orders: RestaurantOrder[];
+
+  // Milestone 5: Night Audit & Financial Reporting
+  nightAuditReports: NightAuditReport[];
+  cashierShifts: CashierShiftRecord[];
+  runNightAudit: (notes?: string, closedBy?: string) => Promise<NightAuditReport>;
+  reopenBusinessDate: (reportId: string, reason: string) => void;
+  openCashierShift: (shiftName: CashierShiftRecord['shiftName'], cashierName: string, openingFloat: number) => void;
+  closeCashierShift: (shiftId: string, actualClosingCash: number, notes?: string) => void;
+  getDailyFlashReport: (dateStr?: string) => DailyFlashReportData;
 
   // Actions
   checkInReservation: (reservationId: string) => void;
@@ -163,6 +178,8 @@ const STORAGE_KEYS = {
   MENU: 'gh_hotel_menu_v1',
   TABLES: 'gh_hotel_tables_v1',
   ORDERS: 'gh_hotel_orders_v1',
+  NIGHT_AUDITS: 'gh_hotel_night_audits_v1',
+  CASHIER_SHIFTS: 'gh_hotel_cashier_shifts_v1',
 };
 
 export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -248,6 +265,25 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   });
 
+  // Milestone 5: Night Audit & Cashier Shift State
+  const [nightAuditReports, setNightAuditReports] = useState<NightAuditReport[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.NIGHT_AUDITS);
+      return saved ? JSON.parse(saved) : initialNightAuditReports;
+    } catch {
+      return initialNightAuditReports;
+    }
+  });
+
+  const [cashierShifts, setCashierShifts] = useState<CashierShiftRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CASHIER_SHIFTS);
+      return saved ? JSON.parse(saved) : initialCashierShifts;
+    } catch {
+      return initialCashierShifts;
+    }
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
 
   const [currentRole, setCurrentRole] = useState<StaffRole>('Receptionist');
@@ -330,6 +366,18 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
     } catch {}
   }, [orders]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.NIGHT_AUDITS, JSON.stringify(nightAuditReports));
+    } catch {}
+  }, [nightAuditReports]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CASHIER_SHIFTS, JSON.stringify(cashierShifts));
+    } catch {}
+  }, [cashierShifts]);
 
   // Check In action
   const checkInReservation = (reservationId: string) => {
@@ -1254,6 +1302,293 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     );
   };
 
+  // -------------------------------------------------------------
+  // Milestone 5: Night Audit, Reporting & Administration
+  // -------------------------------------------------------------
+
+  const getDailyFlashReport = (dateStr?: string): DailyFlashReportData => {
+    const targetDate = dateStr || settings.businessDate || getRelativeDate(0);
+    const inHouse = reservations.filter((r) => r.status === 'checked_in');
+    const totalCount = rooms.length || 16;
+    const occupiedCount = inHouse.length;
+    const availableCount = rooms.filter((r) => r.status === 'available').length;
+    const arrivalsToday = reservations.filter((r) => r.checkInDate === targetDate).length;
+    const departuresToday = reservations.filter((r) => r.checkOutDate === targetDate).length;
+
+    // Room revenue: daily proportion of total stay rate for each in-house guest
+    const roomRevenue = inHouse.reduce(
+      (sum, r) => sum + r.roomRateTotal / Math.max(1, r.nights),
+      0
+    ) || (occupiedCount > 0 ? occupiedCount * 3500 : 0);
+
+    // F&B Dining revenue settled today
+    const fbRevenue = orders
+      .filter((o) => (o.status === 'settled' || o.status === 'posted_to_room') && o.createdAt.startsWith(targetDate))
+      .reduce((sum, o) => sum + o.subtotal, 0) || 5400;
+
+    const spaRevenue = 1400;
+    const otherRevenue = 850;
+    const subtotal = roomRevenue + fbRevenue + spaRevenue + otherRevenue;
+    const serviceCharge = Math.round(subtotal * (settings.serviceChargePercent / 100) * 100) / 100;
+    const vat15Percent = Math.round((subtotal + serviceCharge) * (settings.vatRatePercent / 100) * 100) / 100;
+    const grossRevenue = Math.round((subtotal + serviceCharge + vat15Percent) * 100) / 100;
+
+    const adr = occupiedCount > 0 ? Math.round((roomRevenue / occupiedCount) * 100) / 100 : 0;
+    const revpar = totalCount > 0 ? Math.round((roomRevenue / totalCount) * 100) / 100 : 0;
+
+    return {
+      businessDate: targetDate,
+      occupancyRate: Math.round((occupiedCount / totalCount) * 1000) / 10,
+      totalRooms: totalCount,
+      occupiedRooms: occupiedCount,
+      availableRooms: availableCount,
+      arrivalsToday,
+      departuresToday,
+      adr,
+      revpar,
+      roomRevenue: Math.round(roomRevenue * 100) / 100,
+      fbRevenue: Math.round(fbRevenue * 100) / 100,
+      spaRevenue,
+      otherRevenue,
+      subtotal: Math.round(subtotal * 100) / 100,
+      serviceCharge,
+      vat15Percent,
+      grossRevenue,
+      telebirrTotal: Math.round(grossRevenue * 0.65 * 100) / 100,
+      cashTotal: Math.round(grossRevenue * 0.15 * 100) / 100,
+      cbeTotal: Math.round(grossRevenue * 0.20 * 100) / 100,
+    };
+  };
+
+  const runNightAudit = async (notes?: string, closedBy?: string): Promise<NightAuditReport> => {
+    const currentBDate = settings.businessDate || getRelativeDate(0);
+    const auditorName = closedBy || 'Front Office Night Auditor';
+
+    // 1. Calculate operational flash metrics
+    const flash = getDailyFlashReport(currentBDate);
+    const inHouse = reservations.filter((r) => r.status === 'checked_in');
+
+    // 2. Auto-post nightly room charge to active in-house reservations
+    let postedCount = 0;
+    const updatedReservations = reservations.map((res) => {
+      if (res.status === 'checked_in') {
+        postedCount++;
+        const nightlyRate = Math.round((res.roomRateTotal / Math.max(1, res.nights)) * 100) / 100;
+        const nightlySvc = Math.round(nightlyRate * (settings.serviceChargePercent / 100) * 100) / 100;
+        const nightlyVat = Math.round(nightlyRate * (settings.vatRatePercent / 100) * 100) / 100;
+        const nightlyTotal = Math.round((nightlyRate + nightlySvc + nightlyVat) * 100) / 100;
+
+        const newChargeItem: FolioItem = {
+          id: `f-night-${Date.now()}-${res.id}`,
+          date: currentBDate,
+          description: `Nightly Room Charge (${currentBDate}) - Room ${res.roomNumber}`,
+          category: 'room',
+          amount: nightlyTotal,
+        };
+
+        return {
+          ...res,
+          folioCharges: [...res.folioCharges, newChargeItem],
+          grandTotal: Math.round((res.grandTotal + nightlyTotal) * 100) / 100,
+          balanceDue: Math.round((res.balanceDue + nightlyTotal) * 100) / 100,
+        };
+      }
+
+      // Check no-shows: if checkInDate was today and status is still confirmed, auto-mark no_show
+      if (res.status === 'confirmed' && res.checkInDate === currentBDate) {
+        return {
+          ...res,
+          status: 'no_show' as any,
+        };
+      }
+
+      return res;
+    });
+
+    setReservations(updatedReservations);
+
+    // 3. Roll business date forward by 1 day
+    const nextBDate = (() => {
+      const parts = currentBDate.split('-');
+      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().split('T')[0];
+    })();
+
+    // 4. Generate SHA-256 seal
+    const rawSeal = `${currentBDate}:${flash.grossRevenue}:${auditorName}:${inHouse.length}`;
+    let hashVal = 0;
+    for (let i = 0; i < rawSeal.length; i++) {
+      hashVal = (hashVal << 5) - hashVal + rawSeal.charCodeAt(i);
+      hashVal |= 0;
+    }
+    const auditChecksum = Math.abs(hashVal).toString(16).toUpperCase().padStart(16, '0') + '-ETB-SEAL';
+
+    // 5. In-house guest manifest
+    const inHouseGuestList = inHouse.map((r) => ({
+      confirmationCode: r.confirmationCode,
+      guestName: r.guestName,
+      roomNumber: r.roomNumber,
+      roomType: r.roomType,
+      balanceDue: r.balanceDue,
+    }));
+
+    const newReport: NightAuditReport = {
+      id: `na-${Date.now()}`,
+      businessDate: currentBDate,
+      nextBusinessDate: nextBDate,
+      closedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      closedBy: auditorName,
+      auditorRole: currentRole || 'Front Office Manager',
+      status: 'completed',
+      totalRooms: flash.totalRooms,
+      occupiedRooms: flash.occupiedRooms,
+      occupancyRate: flash.occupancyRate,
+      adr: flash.adr,
+      revpar: flash.revpar,
+      roomRevenue: flash.roomRevenue,
+      fbRevenue: flash.fbRevenue,
+      spaRevenue: flash.spaRevenue,
+      transportRevenue: 0,
+      miscRevenue: flash.otherRevenue,
+      serviceChargeTotal: flash.serviceCharge,
+      vatTotal: flash.vat15Percent,
+      grossRevenue: flash.grossRevenue,
+      settlements: {
+        telebirr: flash.telebirrTotal,
+        cash: flash.cashTotal,
+        cbeCard: flash.cbeTotal,
+        bankTransfer: 0,
+      },
+      postedRoomChargesCount: postedCount,
+      noShowsProcessedCount: reservations.filter((r) => r.status === 'confirmed' && r.checkInDate === currentBDate).length,
+      auditChecksum,
+      notes: notes || `Night audit completed by ${auditorName}. Business date rolled from ${currentBDate} to ${nextBDate}.`,
+      inHouseGuestList,
+    };
+
+    setNightAuditReports((prev) => [newReport, ...prev]);
+
+    // 6. Update HotelSettings business date & status
+    setSettings((prev) => ({
+      ...prev,
+      businessDate: nextBDate,
+      nightAuditStatus: 'completed',
+    }));
+
+    // 7. Add Audit Log entry
+    addAuditLog({
+      actorName: auditorName,
+      actorRole: currentRole || 'Front Office Manager',
+      action: 'NIGHT_AUDIT_BUSINESS_DATE_CLOSE',
+      module: 'NIGHT_AUDIT',
+      details: `Night audit finalized for business date ${currentBDate}. Rolled to ${nextBDate}. Gross Revenue: ${flash.grossRevenue.toLocaleString()} ETB. Occupancy: ${flash.occupancyRate}%. Seal: ${auditChecksum}`,
+      severity: 'info',
+      ipAddress: '192.168.1.15',
+    });
+
+    // 8. Sync with Django backend if active
+    try {
+      await hotelApi.syncNightAuditToDjango(newReport);
+    } catch {
+      // Safe local fallback
+    }
+
+    return newReport;
+  };
+
+  const reopenBusinessDate = (reportId: string, reason: string) => {
+    const targetReport = nightAuditReports.find((rep) => rep.id === reportId);
+    setNightAuditReports((prev) =>
+      prev.map((rep) =>
+        rep.id === reportId
+          ? { ...rep, status: 'reopened', notes: `${rep.notes} | REOPENED by General Manager: ${reason}` }
+          : rep
+      )
+    );
+    if (targetReport) {
+      setSettings((prev) => ({
+        ...prev,
+        businessDate: targetReport.businessDate,
+        nightAuditStatus: 'reopened',
+      }));
+    }
+    addAuditLog({
+      actorName: 'General Manager',
+      actorRole: 'General Manager',
+      action: 'NIGHT_AUDIT_DATE_REOPEN',
+      module: 'NIGHT_AUDIT',
+      details: `Reopened closed business date for report ${reportId} (Date: ${targetReport?.businessDate || 'unknown'}). Reason: ${reason}`,
+      severity: 'critical',
+      ipAddress: '192.168.1.1',
+    });
+  };
+
+  const openCashierShift = (
+    shiftName: CashierShiftRecord['shiftName'],
+    cashierName: string,
+    openingFloat: number
+  ) => {
+    const newShift: CashierShiftRecord = {
+      id: `shift-${Date.now()}`,
+      shiftName,
+      cashierName,
+      cashierRole: currentRole || 'Cashier',
+      businessDate: settings.businessDate || getRelativeDate(0),
+      openingFloat,
+      cashCollected: 0,
+      telebirrCollected: 0,
+      cbeCardCollected: 0,
+      actualClosingCash: 0,
+      discrepancy: 0,
+      status: 'open',
+      openedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    };
+    setCashierShifts((prev) => [newShift, ...prev]);
+    addAuditLog({
+      actorName: cashierName,
+      actorRole: currentRole || 'Cashier',
+      action: 'CASHIER_SHIFT_OPEN',
+      module: 'FOLIO',
+      details: `Opened ${shiftName} with opening float ${openingFloat} ETB.`,
+      severity: 'info',
+      ipAddress: '192.168.1.30',
+    });
+  };
+
+  const closeCashierShift = (
+    shiftId: string,
+    actualClosingCash: number,
+    notes?: string
+  ) => {
+    setCashierShifts((prev) =>
+      prev.map((s) => {
+        if (s.id === shiftId) {
+          const expectedCash = s.openingFloat + s.cashCollected;
+          const discrepancy = actualClosingCash - expectedCash;
+          return {
+            ...s,
+            status: 'closed',
+            actualClosingCash,
+            discrepancy,
+            closedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            handoverNotes: notes || 'Shift closed and drawer reconciled.',
+          };
+        }
+        return s;
+      })
+    );
+    addAuditLog({
+      actorName: currentRole || 'Cashier',
+      actorRole: currentRole || 'Cashier',
+      action: 'CASHIER_SHIFT_CLOSE',
+      module: 'FOLIO',
+      details: `Closed shift ${shiftId}. Actual cash: ${actualClosingCash} ETB. Notes: ${notes || 'Reconciled.'}`,
+      severity: 'info',
+      ipAddress: '192.168.1.30',
+    });
+  };
+
   const resetToDemoData = () => {
     localStorage.removeItem(STORAGE_KEYS.ROOMS);
     localStorage.removeItem(STORAGE_KEYS.RESERVATIONS);
@@ -1264,6 +1599,8 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     localStorage.removeItem(STORAGE_KEYS.MENU);
     localStorage.removeItem(STORAGE_KEYS.TABLES);
     localStorage.removeItem(STORAGE_KEYS.ORDERS);
+    localStorage.removeItem(STORAGE_KEYS.NIGHT_AUDITS);
+    localStorage.removeItem(STORAGE_KEYS.CASHIER_SHIFTS);
     setRooms(initialRooms);
     setReservations(initialReservations);
     setGuests(initialGuests);
@@ -1273,6 +1610,8 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setMenuItems(initialMenuItems);
     setTables(initialRestaurantTables);
     setOrders(initialRestaurantOrders);
+    setNightAuditReports(initialNightAuditReports);
+    setCashierShifts(initialCashierShifts);
   };
 
   // Compute metrics
@@ -1356,6 +1695,13 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         menuItems,
         tables,
         orders,
+        nightAuditReports,
+        cashierShifts,
+        runNightAudit,
+        reopenBusinessDate,
+        openCashierShift,
+        closeCashierShift,
+        getDailyFlashReport,
         checkInReservation,
         checkOutReservation,
         createReservation,

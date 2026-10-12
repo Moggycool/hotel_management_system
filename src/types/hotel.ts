@@ -71,7 +71,7 @@ export interface AuditLogEntry {
   actorName: string;
   actorRole: StaffRole;
   action: string;
-  module: 'AUTH' | 'RESERVATION' | 'FOLIO' | 'ROOMS' | 'HOUSEKEEPING' | 'INVENTORY' | 'AUDIT' | 'SECURITY';
+  module: 'AUTH' | 'RESERVATION' | 'FOLIO' | 'ROOMS' | 'HOUSEKEEPING' | 'INVENTORY' | 'AUDIT' | 'SECURITY' | 'NIGHT_AUDIT' | 'REPORTING';
   details: string;
   severity: 'info' | 'warning' | 'critical';
   ipAddress: string;
@@ -285,3 +285,89 @@ export interface RestaurantOrder {
   specialInstructions?: string;
   voidReason?: string;
 }
+
+// -------------------------------------------------------------
+// Milestone 5: Night Audit, Reporting & Administration
+// -------------------------------------------------------------
+
+export interface NightAuditReport {
+  id: string;
+  businessDate: string;
+  nextBusinessDate: string;
+  closedAt: string;
+  closedBy: string;
+  auditorRole: StaffRole;
+  status: 'completed' | 'reopened';
+  totalRooms: number;
+  occupiedRooms: number;
+  occupancyRate: number; // in %
+  adr: number; // Average Daily Rate in ETB
+  revpar: number; // Revenue Per Available Room in ETB
+  roomRevenue: number;
+  fbRevenue: number;
+  spaRevenue: number;
+  transportRevenue: number;
+  miscRevenue: number;
+  serviceChargeTotal: number; // 10%
+  vatTotal: number; // 15%
+  grossRevenue: number;
+  settlements: {
+    telebirr: number;
+    cash: number;
+    cbeCard: number;
+    bankTransfer: number;
+  };
+  postedRoomChargesCount: number;
+  noShowsProcessedCount: number;
+  auditChecksum: string;
+  notes: string;
+  inHouseGuestList: {
+    confirmationCode: string;
+    guestName: string;
+    roomNumber: string;
+    roomType: string;
+    balanceDue: number;
+  }[];
+}
+
+export interface CashierShiftRecord {
+  id: string;
+  shiftName: 'Morning Shift (06:00 - 14:00)' | 'Afternoon Shift (14:00 - 22:00)' | 'Night Audit Shift (22:00 - 06:00)';
+  cashierName: string;
+  cashierRole: StaffRole;
+  businessDate: string;
+  openingFloat: number;
+  cashCollected: number;
+  telebirrCollected: number;
+  cbeCardCollected: number;
+  actualClosingCash: number;
+  discrepancy: number; // actual - (opening + cashCollected)
+  status: 'open' | 'closed';
+  openedAt: string;
+  closedAt?: string;
+  handoverNotes?: string;
+}
+
+export interface DailyFlashReportData {
+  businessDate: string;
+  occupancyRate: number;
+  totalRooms: number;
+  occupiedRooms: number;
+  availableRooms: number;
+  arrivalsToday: number;
+  departuresToday: number;
+  adr: number;
+  revpar: number;
+  roomRevenue: number;
+  fbRevenue: number;
+  spaRevenue: number;
+  otherRevenue: number;
+  subtotal: number;
+  serviceCharge: number;
+  vat15Percent: number;
+  grossRevenue: number;
+  telebirrTotal: number;
+  cashTotal: number;
+  cbeTotal: number;
+}
+

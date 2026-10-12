@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   UtensilsCrossed,
   Database,
+  Moon,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 
@@ -27,6 +28,7 @@ export type ActiveTab =
   | 'pos'
   | 'guests'
   | 'billing'
+  | 'night_audit'
   | 'calendar'
   | 'database_admin'
   | 'settings';
@@ -75,6 +77,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     },
     { id: 'guests', label: 'Guest CRM', icon: Users },
     { id: 'billing', label: 'Folio & Billing', icon: Receipt },
+    {
+      id: 'night_audit',
+      label: 'Night Audit & Reports (M5)',
+      icon: Moon,
+      badgeColor: 'bg-purple-100 text-purple-800',
+    },
     { id: 'calendar', label: 'Occupancy Timeline', icon: CalendarDays },
     { id: 'database_admin', label: 'Database & Admin', icon: Database },
     { id: 'settings', label: 'Hotel Settings', icon: Settings },

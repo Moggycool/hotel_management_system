@@ -433,4 +433,66 @@ export const hotelApi = {
   async fetchGuestsFromDjango(): Promise<any[]> {
     return getStoredTable<any>(DB_STORAGE_KEYS.GUESTS, []);
   },
+
+  /**
+   * Sync Night Audit Session to Django REST backend
+   */
+  async syncNightAuditToDjango(auditPayload: any): Promise<SyncResult> {
+    const candidateUrls = getCandidateUrls();
+    let lastNetworkErr = '';
+
+    for (const baseUrl of candidateUrls) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const response = await fetch(`${baseUrl}/reporting/night-audit/execute/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            business_date: auditPayload.businessDate,
+            next_business_date: auditPayload.nextBusinessDate,
+            closed_by: auditPayload.closedBy,
+            auditor_role: auditPayload.auditorRole,
+            notes: auditPayload.notes,
+            snapshot_data: auditPayload,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok || response.status === 201 || response.status === 200) {
+          const data = await response.json();
+          return {
+            success: true,
+            syncedToDjango: true,
+            data,
+            endpoint: baseUrl,
+            engineMode: 'django_rest_server',
+          };
+        }
+
+        const errText = await response.text();
+        lastNetworkErr = `Django ${baseUrl} (HTTP ${response.status}): ${errText.slice(0, 200)}`;
+      } catch (err: any) {
+        lastNetworkErr = err?.message || 'Network unreachable';
+      }
+    }
+
+    // Persist in local storage table
+    const storedAudits = getStoredTable<any>('django_table_apps_reporting_nightauditsession', []);
+    setStoredTable('django_table_apps_reporting_nightauditsession', [auditPayload, ...storedAudits]);
+
+    return {
+      success: false,
+      syncedToDjango: false,
+      data: auditPayload,
+      endpoint: candidateUrls[0],
+      engineMode: 'embedded_pms_db',
+      error: lastNetworkErr,
+    };
+  },
 };

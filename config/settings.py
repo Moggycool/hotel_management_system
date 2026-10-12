@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'apps.reservations',
     'apps.billing',
     'apps.housekeeping',
+    'apps.reporting',
     'apps.core',
     'corsheaders',
 ]

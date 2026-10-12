@@ -8,6 +8,8 @@ import {
   MenuItem,
   RestaurantTable,
   RestaurantOrder,
+  NightAuditReport,
+  CashierShiftRecord,
 } from '../types/hotel';
 
 // Dynamic date generator helper so demo dates always align with user's current day
@@ -1484,5 +1486,125 @@ export const initialRestaurantOrders: RestaurantOrder[] = [
     settledAt: `${getRelativeDate(0)} 10:48:00`,
   },
 ];
+
+// -------------------------------------------------------------
+// Milestone 5: Initial Historical Night Audit Reports & Cashier Shifts
+// -------------------------------------------------------------
+
+export const initialNightAuditReports: NightAuditReport[] = [
+  {
+    id: 'na-rep-yesterday',
+    businessDate: getRelativeDate(-1),
+    nextBusinessDate: getRelativeDate(0),
+    closedAt: `${getRelativeDate(0)} 02:45:18`,
+    closedBy: 'Solomon Demissie',
+    auditorRole: 'Front Office Manager',
+    status: 'completed',
+    totalRooms: 16,
+    occupiedRooms: 11,
+    occupancyRate: 68.8,
+    adr: 3650.0,
+    revpar: 2509.38,
+    roomRevenue: 40150.0,
+    fbRevenue: 9840.0,
+    spaRevenue: 2800.0,
+    transportRevenue: 1500.0,
+    miscRevenue: 650.0,
+    serviceChargeTotal: 5494.0,
+    vatTotal: 9065.1,
+    grossRevenue: 69499.1,
+    settlements: {
+      telebirr: 45174.42,
+      cash: 10424.86,
+      cbeCard: 13899.82,
+      bankTransfer: 0,
+    },
+    postedRoomChargesCount: 11,
+    noShowsProcessedCount: 0,
+    auditChecksum: '9F8B2C4E1A7D3F605A2C8E4B19D703FA',
+    notes: 'Night audit successfully finalized. All 11 room charges posted to active guest folios. Telebirr merchant drawer balanced with zero discrepancies.',
+    inHouseGuestList: [
+      { confirmationCode: 'GH-2026-1011', guestName: 'Alexander Wright', roomNumber: '101', roomType: 'Standard King', balanceDue: 0 },
+      { confirmationCode: 'GH-2026-1044', guestName: 'Elena Rostova', roomNumber: '104', roomType: 'Standard King', balanceDue: 450 },
+      { confirmationCode: 'GH-2026-2015', guestName: 'Marcus Vance', roomNumber: '201', roomType: 'Deluxe Ocean View', balanceDue: 0 },
+      { confirmationCode: 'GH-2026-3019', guestName: 'Sophia Montgomery', roomNumber: '301', roomType: 'Executive Suite', balanceDue: 601.6 },
+      { confirmationCode: 'GH-2026-3033', guestName: 'David & Emily Miller', roomNumber: '303', roomType: 'Family Suite', balanceDue: 0 },
+    ],
+  },
+  {
+    id: 'na-rep-prev-2',
+    businessDate: getRelativeDate(-2),
+    nextBusinessDate: getRelativeDate(-1),
+    closedAt: `${getRelativeDate(-1)} 03:02:40`,
+    closedBy: 'Solomon Demissie',
+    auditorRole: 'Front Office Manager',
+    status: 'completed',
+    totalRooms: 16,
+    occupiedRooms: 9,
+    occupancyRate: 56.3,
+    adr: 3500.0,
+    revpar: 1968.75,
+    roomRevenue: 31500.0,
+    fbRevenue: 7420.0,
+    spaRevenue: 1900.0,
+    transportRevenue: 800.0,
+    miscRevenue: 400.0,
+    serviceChargeTotal: 4202.0,
+    vatTotal: 6933.3,
+    grossRevenue: 53155.3,
+    settlements: {
+      telebirr: 34550.95,
+      cash: 7973.29,
+      cbeCard: 10631.06,
+      bankTransfer: 0,
+    },
+    postedRoomChargesCount: 9,
+    noShowsProcessedCount: 1,
+    auditChecksum: '4E7A1C809F2D3A556B8C1E0A72D94B81',
+    notes: 'One no-show released for room 204. Full batch folio reconciliation completed.',
+    inHouseGuestList: [
+      { confirmationCode: 'GH-2026-1011', guestName: 'Alexander Wright', roomNumber: '101', roomType: 'Standard King', balanceDue: 0 },
+      { confirmationCode: 'GH-2026-2015', guestName: 'Marcus Vance', roomNumber: '201', roomType: 'Deluxe Ocean View', balanceDue: 0 },
+      { confirmationCode: 'GH-2026-3019', guestName: 'Sophia Montgomery', roomNumber: '301', roomType: 'Executive Suite', balanceDue: 601.6 },
+    ],
+  },
+];
+
+export const initialCashierShifts: CashierShiftRecord[] = [
+  {
+    id: 'shift-today-morning',
+    shiftName: 'Morning Shift (06:00 - 14:00)',
+    cashierName: 'Meron Assefa',
+    cashierRole: 'Cashier',
+    businessDate: getRelativeDate(0),
+    openingFloat: 5000.0,
+    cashCollected: 8400.0,
+    telebirrCollected: 24650.0,
+    cbeCardCollected: 9200.0,
+    actualClosingCash: 13400.0,
+    discrepancy: 0,
+    status: 'closed',
+    openedAt: `${getRelativeDate(0)} 06:00:00`,
+    closedAt: `${getRelativeDate(0)} 14:02:15`,
+    handoverNotes: 'Shift reconciled cleanly with evening cashier. Cash drawer sealed.',
+  },
+  {
+    id: 'shift-today-afternoon',
+    shiftName: 'Afternoon Shift (14:00 - 22:00)',
+    cashierName: 'Abel Tesfaye',
+    cashierRole: 'Receptionist',
+    businessDate: getRelativeDate(0),
+    openingFloat: 5000.0,
+    cashCollected: 6200.0,
+    telebirrCollected: 18450.0,
+    cbeCardCollected: 5800.0,
+    actualClosingCash: 11200.0,
+    discrepancy: 0,
+    status: 'open',
+    openedAt: `${getRelativeDate(0)} 14:00:00`,
+    handoverNotes: 'Active shift in progress awaiting night audit handover.',
+  },
+];
+
 
 

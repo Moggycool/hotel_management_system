@@ -16,6 +16,7 @@ import {
   FileText,
   BadgeDollarSign,
   UtensilsCrossed,
+  Moon,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Reservation, RoomStatus } from '../../types/hotel';
@@ -72,6 +73,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           >
             <UtensilsCrossed className="w-4 h-4 text-orange-400" />
             <span>F&B POS (M4)</span>
+          </button>
+          <button
+            onClick={() => onNavigateTab('night_audit')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-200 font-medium text-sm rounded-xl transition-colors cursor-pointer"
+          >
+            <Moon className="w-4 h-4 text-purple-400" />
+            <span>Night Audit (M5)</span>
           </button>
         </div>
       </div>
