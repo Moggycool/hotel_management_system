@@ -38,6 +38,8 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
   const [nationality, setNationality] = useState('United States');
   const [vipTier, setVipTier] = useState<Guest['vipTier']>('Regular');
   const [preferences, setPreferences] = useState('');
+  const [isSavingGuest, setIsSavingGuest] = useState(false);
+  const [guestSaveError, setGuestSaveError] = useState('');
 
   const filteredGuests = guests.filter((g) => {
     if (!searchQuery) return true;
@@ -50,26 +52,34 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
     );
   });
 
-  const handleAddGuest = (e: React.FormEvent) => {
+  const handleAddGuest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email) return;
+    if (!fullName || !email || !phone) return;
 
-    addGuest({
-      fullName,
-      email,
-      phone,
-      idNumber: idNumber || `ID-${Math.floor(100000 + Math.random() * 900000)}`,
-      nationality,
-      vipTier,
-      specialPreferences: preferences,
-    });
+    setIsSavingGuest(true);
+    setGuestSaveError('');
+    try {
+      await addGuest({
+        fullName,
+        email,
+        phone,
+        idNumber: idNumber || `ID-${Math.floor(100000 + Math.random() * 900000)}`,
+        nationality,
+        vipTier,
+        specialPreferences: preferences,
+      });
 
-    setFullName('');
-    setEmail('');
-    setPhone('');
-    setIdNumber('');
-    setPreferences('');
-    setIsNewGuestOpen(false);
+      setFullName('');
+      setEmail('');
+      setPhone('');
+      setIdNumber('');
+      setPreferences('');
+      setIsNewGuestOpen(false);
+    } catch (error) {
+      setGuestSaveError(error instanceof Error ? error.message : 'Could not save the guest profile.');
+    } finally {
+      setIsSavingGuest(false);
+    }
   };
 
   const getVipBadge = (tier: Guest['vipTier']) => {
@@ -326,6 +336,7 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
                   <label className="font-bold text-slate-700 block mb-1">Phone</label>
                   <input
                     type="tel"
+                    required
                     placeholder="+1 (555) 234-5678"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -381,6 +392,8 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
                 />
               </div>
 
+              {guestSaveError && <p role="alert" className="text-rose-700">{guestSaveError}</p>}
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -391,9 +404,10 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-indigo-600 text-white font-bold rounded"
+                  disabled={isSavingGuest}
+                  className="px-4 py-1.5 bg-indigo-600 disabled:opacity-60 text-white font-bold rounded"
                 >
-                  Save Profile
+                  {isSavingGuest ? 'Saving...' : 'Save Profile'}
                 </button>
               </div>
             </form>

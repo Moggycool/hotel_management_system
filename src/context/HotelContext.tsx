@@ -71,8 +71,8 @@ interface HotelContextType {
   getDailyFlashReport: (dateStr?: string) => DailyFlashReportData;
 
   // Actions
-  checkInReservation: (reservationId: string) => void;
-  checkOutReservation: (reservationId: string) => void;
+  checkInReservation: (reservationId: string) => Promise<boolean>;
+  checkOutReservation: (reservationId: string) => Promise<boolean>;
   createReservation: (
     resData: {
       guestName: string;
@@ -94,22 +94,35 @@ interface HotelContextType {
       initialDeposit: number;
       paymentMethod: PaymentMethod;
       directCheckIn?: boolean;
+      bookingSource?: string;
+      idType?: string;
+      idNumber?: string;
+      ratePlanName?: string;
+      financials: {
+        roomRateTotal: number;
+        addOnsTotal: number;
+        vatAmount: number;
+        serviceChargeAmount: number;
+        grandTotal: number;
+      };
     }
-  ) => Reservation;
-  cancelReservation: (reservationId: string) => void;
+  ) => Promise<Reservation>;
+  cancelReservation: (reservationId: string) => Promise<boolean>;
+  markReservationNoShow: (reservationId: string) => Promise<boolean>;
   updateRoomStatus: (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => void;
   updateRoom: (roomId: string, updates: Partial<Room>) => void;
-  addRoom: (room: Omit<Room, 'id'>) => void;
+  saveRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
+  addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => Promise<void>;
   assignHousekeeper: (roomId: string, staffName: string) => void;
-  updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => void;
-  createHousekeepingTask: (task: Omit<HousekeepingTask, 'id' | 'requestedAt'>) => void;
+  updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => Promise<boolean>;
+  createHousekeepingTask: (task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>) => Promise<boolean>;
   createMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate'>) => void;
   updateMaintenanceStatus: (ticketId: string, status: 'open' | 'in_progress' | 'resolved') => void;
   addFolioCharge: (reservationId: string, charge: { description: string; category: FolioItem['category']; amount: number }) => void;
   recordPayment: (reservationId: string, payment: { amount: number; method: PaymentMethod; referenceNumber?: string; telebirrTransactionId?: string }) => void;
-  addGuest: (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>) => Guest;
-  updateGuest: (guestId: string, updates: Partial<Guest>) => void;
-  updateSettings: (newSettings: Partial<HotelSettings>) => void;
+  addGuest: (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>) => Promise<Guest>;
+  updateGuest: (guestId: string, updates: Partial<Guest>) => Promise<boolean>;
+  updateSettings: (newSettings: Partial<HotelSettings>) => Promise<void>;
   updateReservationSyncStatus: (reservationId: string, synced: boolean, error?: string, databaseId?: string) => void;
   resetToDemoData: () => void;
 
@@ -129,20 +142,19 @@ interface HotelContextType {
     specialInstructions?: string;
     waiterName?: string;
     sendToKitchenImmediately?: boolean;
-  }) => RestaurantOrder;
-  updateOrderItemStatus: (orderId: string, orderItemId: string, status: OrderItemStatus) => void;
-  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  }) => Promise<RestaurantOrder>;
+  updateOrderItemStatus: (orderId: string, orderItemId: string, status: OrderItemStatus) => Promise<boolean>;
   postOrderToRoomFolio: (orderId: string, reservationId: string) => { success: boolean; message: string; folioChargeId?: string };
   settleOrderDirectly: (
     orderId: string,
     paymentMethod: PaymentMethod,
     reference?: string,
     telebirrTxId?: string
-  ) => void;
-  voidOrder: (orderId: string, reason: string) => void;
-  toggleMenuItemAvailability: (menuItemId: string) => void;
-  updateMenuItem: (menuItemId: string, updates: Partial<MenuItem>) => void;
-  addMenuItem: (item: Omit<MenuItem, 'id'>) => MenuItem;
+  ) => Promise<boolean>;
+  voidOrder: (orderId: string, reason: string) => Promise<boolean>;
+  toggleMenuItemAvailability: (menuItemId: string) => Promise<boolean>;
+  updateMenuItem: (menuItemId: string, updates: Partial<MenuItem>) => Promise<boolean>;
+  addMenuItem: (item: Omit<MenuItem, 'id'>) => Promise<MenuItem>;
   updateTableStatus: (tableId: string, status: TableStatus, assignedWaiter?: string) => void;
 
   // Computed Metrics
@@ -183,41 +195,13 @@ const STORAGE_KEYS = {
 };
 
 export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [rooms, setRooms] = useState<Room[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.ROOMS);
-      return saved ? JSON.parse(saved) : initialRooms;
-    } catch {
-      return initialRooms;
-    }
-  });
+  const [rooms, setRooms] = useState<Room[]>(initialRooms);
 
-  const [reservations, setReservations] = useState<Reservation[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.RESERVATIONS);
-      return saved ? JSON.parse(saved) : initialReservations;
-    } catch {
-      return initialReservations;
-    }
-  });
+  const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
 
-  const [guests, setGuests] = useState<Guest[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.GUESTS);
-      return saved ? JSON.parse(saved) : initialGuests;
-    } catch {
-      return initialGuests;
-    }
-  });
+  const [guests, setGuests] = useState<Guest[]>(initialGuests);
 
-  const [housekeepingTasks, setHousekeepingTasks] = useState<HousekeepingTask[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.HOUSEKEEPING);
-      return saved ? JSON.parse(saved) : initialHousekeepingTasks;
-    } catch {
-      return initialHousekeepingTasks;
-    }
-  });
+  const [housekeepingTasks, setHousekeepingTasks] = useState<HousekeepingTask[]>(initialHousekeepingTasks);
 
   const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>(() => {
     try {
@@ -228,24 +212,10 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   });
 
-  const [settings, setSettings] = useState<HotelSettings>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return saved ? JSON.parse(saved) : initialHotelSettings;
-    } catch {
-      return initialHotelSettings;
-    }
-  });
+  const [settings, setSettings] = useState<HotelSettings>(initialHotelSettings);
 
   // Milestone 4: POS & Restaurant State
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.MENU);
-      return saved ? JSON.parse(saved) : initialMenuItems;
-    } catch {
-      return initialMenuItems;
-    }
-  });
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems);
 
   const [tables, setTables] = useState<RestaurantTable[]>(() => {
     try {
@@ -256,14 +226,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   });
 
-  const [orders, setOrders] = useState<RestaurantOrder[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
-      return saved ? JSON.parse(saved) : initialRestaurantOrders;
-    } catch {
-      return initialRestaurantOrders;
-    }
-  });
+  const [orders, setOrders] = useState<RestaurantOrder[]>(initialRestaurantOrders);
 
   // Milestone 5: Night Audit & Cashier Shift State
   const [nightAuditReports, setNightAuditReports] = useState<NightAuditReport[]>(() => {
@@ -312,30 +275,97 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     } catch {}
   }, [auditLogs]);
 
-  // Persist to local storage
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.ROOMS, JSON.stringify(rooms));
-    } catch {}
-  }, [rooms]);
+    let isCurrent = true;
+
+    hotelApi.fetchRoomsFromDjango()
+      .then((backendRooms) => {
+        if (isCurrent) setRooms(backendRooms);
+      })
+      .catch(() => {
+        // Keep demo inventory visible when the local Django server is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.RESERVATIONS, JSON.stringify(reservations));
-    } catch {}
-  }, [reservations]);
+    let isCurrent = true;
+
+    hotelApi.fetchReservationsFromDjango()
+      .then((backendReservations) => {
+        if (!isCurrent) return;
+        setReservations((current) => {
+          const backendIds = new Set(backendReservations.map((reservation) => reservation.databaseId));
+          const pendingLocal = current.filter(
+            (reservation) => reservation.databaseId && !backendIds.has(reservation.databaseId)
+          );
+          return [...pendingLocal, ...backendReservations];
+        });
+      })
+      .catch(() => {
+        // Keep demo reservations visible when the local Django server is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.GUESTS, JSON.stringify(guests));
-    } catch {}
-  }, [guests]);
+    let isCurrent = true;
+
+    hotelApi.fetchGuestsFromDjango()
+      .then((backendGuests) => {
+        if (!isCurrent) return;
+        setGuests((current) => {
+          const backendIds = new Set(backendGuests.map((guest) => guest.id));
+          const pendingLocal = current.filter(
+            (guest) => /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(guest.id) && !backendIds.has(guest.id)
+          );
+          return [...pendingLocal, ...backendGuests];
+        });
+      })
+      .catch(() => {
+        // Keep demo guests visible when the local Django server is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.HOUSEKEEPING, JSON.stringify(housekeepingTasks));
-    } catch {}
-  }, [housekeepingTasks]);
+    let isCurrent = true;
+    hotelApi.fetchHousekeepingTasksFromDjango()
+      .then((backendTasks) => {
+        if (isCurrent) setHousekeepingTasks(backendTasks);
+      })
+      .catch(() => {
+        // Keep demo tasks visible if the authenticated housekeeping API is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    hotelApi.fetchPropertySettingsFromDjango()
+      .then((propertySettings) => {
+        if (isCurrent) setSettings((current) => ({ ...current, ...propertySettings }));
+      })
+      .catch(() => {
+        // Keep the default display values until the authenticated property API is available.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -345,27 +375,39 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-    } catch {}
-  }, [settings]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.MENU, JSON.stringify(menuItems));
-    } catch {}
-  }, [menuItems]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem(STORAGE_KEYS.TABLES, JSON.stringify(tables));
     } catch {}
   }, [tables]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
-    } catch {}
-  }, [orders]);
+    let isCurrent = true;
+    hotelApi.fetchRestaurantOrdersFromDjango()
+      .then((backendOrders) => {
+        if (isCurrent) setOrders(backendOrders);
+      })
+      .catch(() => {
+        // Keep demo orders visible if the authenticated restaurant API is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    hotelApi.fetchRestaurantMenuFromDjango()
+      .then((backendMenu) => {
+        if (isCurrent) setMenuItems(backendMenu);
+      })
+      .catch(() => {
+        // Keep demo menu visible if the authenticated restaurant API is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -374,96 +416,83 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [nightAuditReports]);
 
   useEffect(() => {
+    let isCurrent = true;
+    hotelApi.fetchNightAuditSessionsFromDjango()
+      .then((backendReports) => {
+        if (isCurrent) setNightAuditReports(backendReports);
+      })
+      .catch(() => {
+        // Keep cached reports visible if the authenticated reporting API is unavailable.
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.CASHIER_SHIFTS, JSON.stringify(cashierShifts));
     } catch {}
   }, [cashierShifts]);
 
   // Check In action
-  const checkInReservation = (reservationId: string) => {
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
-    let targetRoomId = '';
+  const checkInReservation = async (reservationId: string): Promise<boolean> => {
+    const reservation = reservations.find((item) => item.id === reservationId);
+    if (!reservation) return false;
 
-    setReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          targetRoomId = res.roomId;
-          return {
-            ...res,
-            status: 'checked_in',
-            actualCheckInTime: now,
-          };
-        }
-        return res;
-      })
-    );
-
-    if (targetRoomId) {
-      setRooms((prev) =>
-        prev.map((room) =>
-          room.id === targetRoomId
-            ? { ...room, status: 'occupied', currentReservationId: reservationId, housekeepingStatus: 'clean' }
-            : room
-        )
-      );
+    try {
+      const result = await hotelApi.transitionReservationInDjango(reservation.confirmationCode, 'check-in');
+      const actualCheckInTime = result.actual_check_in_time?.replace('T', ' ').slice(0, 16)
+        || new Date().toISOString().replace('T', ' ').substring(0, 16);
+      setReservations((prev) => prev.map((item) => item.id === reservationId
+        ? { ...item, status: 'checked_in', actualCheckInTime }
+        : item));
+      setRooms((prev) => prev.map((room) => room.roomNumber === reservation.roomNumber
+        ? { ...room, status: 'occupied', currentReservationId: reservationId, housekeepingStatus: 'clean' }
+        : room));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not check in this reservation.');
+      return false;
     }
   };
 
   // Check Out action
-  const checkOutReservation = (reservationId: string) => {
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 16);
-    let targetRoomId = '';
-    let roomNum = '';
-    let roomTypeVal = '';
+  const checkOutReservation = async (reservationId: string): Promise<boolean> => {
+    const reservation = reservations.find((item) => item.id === reservationId);
+    if (!reservation) return false;
 
-    setReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          targetRoomId = res.roomId;
-          roomNum = res.roomNumber;
-          roomTypeVal = res.roomType;
-          return {
-            ...res,
-            status: 'checked_out',
-            actualCheckOutTime: now,
-          };
-        }
-        return res;
-      })
-    );
+    try {
+      const result = await hotelApi.transitionReservationInDjango(reservation.confirmationCode, 'check-out');
+      const actualCheckOutTime = result.actual_check_out_time?.replace('T', ' ').slice(0, 16)
+        || new Date().toISOString().replace('T', ' ').substring(0, 16);
+      setReservations((prev) => prev.map((item) => item.id === reservationId
+        ? { ...item, status: 'checked_out', actualCheckOutTime }
+        : item));
+      setRooms((prev) => prev.map((room) => room.roomNumber === reservation.roomNumber
+        ? { ...room, status: 'cleaning', housekeepingStatus: 'dirty', currentReservationId: undefined }
+        : room));
 
-    if (targetRoomId) {
-      setRooms((prev) =>
-        prev.map((room) =>
-          room.id === targetRoomId
-            ? {
-                ...room,
-                status: 'cleaning',
-                housekeepingStatus: 'dirty',
-                currentReservationId: undefined,
-              }
-            : room
-        )
-      );
-
-      // Automatically enqueue a departure turnover cleaning task
-      const newTask: HousekeepingTask = {
-        id: `hk-${Date.now()}`,
-        roomId: targetRoomId,
-        roomNumber: roomNum,
-        roomType: roomTypeVal as any,
-        status: 'dirty',
-        priority: 'high',
-        assignedTo: 'Unassigned',
-        requestedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        notes: `Departure clean after check-out of reservation #${reservationId.slice(-4)}. Linen reset & sanitation required.`,
-      };
-      setHousekeepingTasks((prev) => [newTask, ...prev]);
+      try {
+        const [tasks, backendRooms] = await Promise.all([
+          hotelApi.fetchHousekeepingTasksFromDjango(),
+          hotelApi.fetchRoomsFromDjango(),
+        ]);
+        setHousekeepingTasks(tasks);
+        setRooms(backendRooms);
+      } catch {
+        // The check-out and its cleaning task are already committed in Django.
+      }
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not check out this reservation.');
+      return false;
     }
   };
 
   // Create Reservation action
-  const createReservation = (data: {
+  const createReservation = async (data: {
     guestName: string;
     guestEmail: string;
     guestPhone: string;
@@ -483,7 +512,18 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     initialDeposit: number;
     paymentMethod: PaymentMethod;
     directCheckIn?: boolean;
-  }): Reservation => {
+    bookingSource?: string;
+    idType?: string;
+    idNumber?: string;
+    ratePlanName?: string;
+    financials: {
+      roomRateTotal: number;
+      addOnsTotal: number;
+      vatAmount: number;
+      serviceChargeAmount: number;
+      grandTotal: number;
+    };
+  }): Promise<Reservation> => {
     const targetRoom = rooms.find((r) => r.id === data.roomId);
     if (!targetRoom) {
       throw new Error('Room not found');
@@ -496,7 +536,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
     // Financials
-    const roomRateTotal = targetRoom.pricePerNight * nights;
+    const roomRateTotal = data.financials.roomRateTotal;
     let addOnsTotal = 0;
     const folioCharges: FolioItem[] = [
       {
@@ -509,7 +549,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     ];
 
     if (data.addOns.breakfast) {
-      const bCost = 25 * (data.adults + data.children) * nights;
+      const bCost = 350 * (data.adults + data.children) * nights;
       addOnsTotal += bCost;
       folioCharges.push({
         id: `f-bk-${Date.now()}`,
@@ -521,7 +561,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
 
     if (data.addOns.airportTransfer) {
-      const tCost = 75;
+      const tCost = 500;
       addOnsTotal += tCost;
       folioCharges.push({
         id: `f-tr-${Date.now()}`,
@@ -533,7 +573,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
 
     if (data.addOns.spaPass) {
-      const sCost = 120 * data.adults;
+      const sCost = 800 * data.adults;
       addOnsTotal += sCost;
       folioCharges.push({
         id: `f-sp-${Date.now()}`,
@@ -545,7 +585,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
 
     if (data.addOns.lateCheckOut) {
-      const lCost = 50;
+      const lCost = 400;
       addOnsTotal += lCost;
       folioCharges.push({
         id: `f-lc-${Date.now()}`,
@@ -556,9 +596,9 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
 
-    const subtotal = roomRateTotal + addOnsTotal;
-    const vatAmount = parseFloat(((subtotal * (settings.vatRatePercent || 15)) / 100).toFixed(2));
-    const serviceChargeAmount = parseFloat(((subtotal * (settings.serviceChargePercent || 10)) / 100).toFixed(2));
+    addOnsTotal = data.financials.addOnsTotal;
+    const vatAmount = data.financials.vatAmount;
+    const serviceChargeAmount = data.financials.serviceChargeAmount;
     const taxTotal = parseFloat((vatAmount + serviceChargeAmount).toFixed(2));
 
     folioCharges.push({
@@ -576,7 +616,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       amount: vatAmount,
     });
 
-    const grandTotal = parseFloat((subtotal + taxTotal).toFixed(2));
+    const grandTotal = data.financials.grandTotal;
     const amountPaid = Math.min(data.initialDeposit, grandTotal);
     const balanceDue = parseFloat((grandTotal - amountPaid).toFixed(2));
 
@@ -593,6 +633,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // Associate or create guest
     let guestId = data.guestId;
+    let guestToSave: Guest | undefined;
     if (!guestId) {
       const existingGuest = guests.find(
         (g) => g.email.toLowerCase() === data.guestEmail.toLowerCase()
@@ -613,16 +654,56 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           specialPreferences: data.specialRequests || 'None noted.',
           createdAt: new Date().toISOString().split('T')[0],
         };
-        setGuests((prev) => [newGuest, ...prev]);
+        guestToSave = newGuest;
         guestId = newGuest.id;
       }
     }
 
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const backendReservation = await hotelApi.createReservationInDjango({
+      guest_name: data.guestName,
+      guest_email: data.guestEmail,
+      guest_phone: data.guestPhone,
+      id_type: data.idType,
+      id_number: data.idNumber,
+      room_number: targetRoom.roomNumber,
+      room_id: targetRoom.id,
+      rate_plan_name: data.ratePlanName || 'Standard Flexible Rate',
+      check_in_date: data.checkInDate,
+      check_out_date: data.checkOutDate,
+      adults: data.adults,
+      children: data.children,
+      source: data.bookingSource || 'walk_in',
+      status: 'CONFIRMED',
+      special_requests: data.specialRequests,
+      room_rate_total_etb: roomRateTotal,
+      vat_etb: vatAmount,
+      service_charge_etb: serviceChargeAmount,
+      grand_total_etb: grandTotal,
+      deposit_paid_etb: amountPaid,
+      payment_method: data.paymentMethod,
+    });
+
+    let checkedIn = false;
+    let actualCheckInTime: string | undefined;
+    if (data.directCheckIn) {
+      try {
+        const checkInResult = await hotelApi.transitionReservationInDjango(
+          backendReservation.confirmation_code,
+          'check-in'
+        );
+        checkedIn = true;
+        actualCheckInTime = checkInResult.actual_check_in_time?.replace('T', ' ').slice(0, 16);
+      } catch (error) {
+        window.alert(`Reservation saved, but express check-in failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    if (guestToSave) setGuests((prev) => [guestToSave!, ...prev]);
+
     const resId = `res-${Date.now()}`;
     const newReservation: Reservation = {
       id: resId,
-      confirmationCode: `GH-2026-${randomSuffix}`,
+      confirmationCode: backendReservation.confirmation_code,
       guestId,
       guestName: data.guestName,
       guestEmail: data.guestEmail,
@@ -635,7 +716,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       nights,
       adults: data.adults,
       children: data.children,
-      status: data.directCheckIn ? 'checked_in' : 'confirmed',
+      status: checkedIn ? 'checked_in' : 'confirmed',
       specialRequests: data.specialRequests,
       addOns: data.addOns,
       roomRateTotal,
@@ -647,9 +728,9 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       folioCharges,
       payments,
       createdAt: new Date().toISOString().split('T')[0],
-      actualCheckInTime: data.directCheckIn
-        ? new Date().toISOString().replace('T', ' ').substring(0, 16)
-        : undefined,
+      actualCheckInTime,
+      syncedToDatabase: true,
+      databaseId: backendReservation.id,
     };
 
     setReservations((prev) => [newReservation, ...prev]);
@@ -660,7 +741,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         r.id === targetRoom.id
           ? {
               ...r,
-              status: data.directCheckIn ? 'occupied' : 'reserved',
+              status: checkedIn ? 'occupied' : 'reserved',
               currentReservationId: resId,
             }
           : r
@@ -670,26 +751,45 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return newReservation;
   };
 
-  const cancelReservation = (reservationId: string) => {
-    let linkedRoomId = '';
-    setReservations((prev) =>
-      prev.map((res) => {
-        if (res.id === reservationId) {
-          linkedRoomId = res.roomId;
-          return { ...res, status: 'cancelled' };
-        }
-        return res;
-      })
-    );
+  const cancelReservation = async (reservationId: string): Promise<boolean> => {
+    const reservation = reservations.find((item) => item.id === reservationId);
+    if (!reservation) return false;
 
-    if (linkedRoomId) {
-      setRooms((prev) =>
-        prev.map((r) =>
-          r.id === linkedRoomId && (r.status === 'reserved' || r.currentReservationId === reservationId)
-            ? { ...r, status: 'available', currentReservationId: undefined }
-            : r
-        )
-      );
+    try {
+      await hotelApi.transitionReservationInDjango(reservation.confirmationCode, 'cancel');
+      setReservations((prev) => prev.map((item) => item.id === reservationId
+        ? { ...item, status: 'cancelled' }
+        : item));
+      setRooms((prev) => prev.map((room) =>
+        room.roomNumber === reservation.roomNumber && (room.status === 'reserved' || room.currentReservationId === reservationId)
+          ? { ...room, status: 'available', currentReservationId: undefined }
+          : room
+      ));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not cancel this reservation.');
+      return false;
+    }
+  };
+
+  const markReservationNoShow = async (reservationId: string): Promise<boolean> => {
+    const reservation = reservations.find((item) => item.id === reservationId);
+    if (!reservation) return false;
+
+    try {
+      await hotelApi.transitionReservationInDjango(reservation.confirmationCode, 'no-show');
+      setReservations((prev) => prev.map((item) => item.id === reservationId
+        ? { ...item, status: 'cancelled' }
+        : item));
+      setRooms((prev) => prev.map((room) =>
+        room.roomNumber === reservation.roomNumber && (room.status === 'reserved' || room.currentReservationId === reservationId)
+          ? { ...room, status: 'available', currentReservationId: undefined }
+          : room
+      ));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not mark this reservation as a no-show.');
+      return false;
     }
   };
 
@@ -712,12 +812,14 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, ...updates } : r)));
   };
 
-  const addRoom = (roomData: Omit<Room, 'id'>) => {
-    const newRoom: Room = {
-      ...roomData,
-      id: `room-${roomData.roomNumber}-${Date.now().toString().slice(-4)}`,
-    };
-    setRooms((prev) => [...prev, newRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
+  const saveRoom = async (roomId: string, updates: Partial<Room>) => {
+    const updatedRoom = await hotelApi.updateRoomInDjango(roomId, updates);
+    setRooms((prev) => prev.map((room) => room.id === roomId ? updatedRoom : room));
+  };
+
+  const addRoom = async (roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => {
+    const createdRoom = await hotelApi.createRoomInDjango(roomData);
+    setRooms((prev) => [...prev, createdRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
   };
 
   const assignHousekeeper = (roomId: string, staffName: string) => {
@@ -727,59 +829,30 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     );
   };
 
-  const updateHousekeepingStatus = (taskId: string, status: HousekeepingStatus) => {
-    let linkedRoomId = '';
-    setHousekeepingTasks((prev) =>
-      prev.map((t) => {
-        if (t.id === taskId) {
-          linkedRoomId = t.roomId;
-          return {
-            ...t,
-            status,
-            completedAt: status === 'clean' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t.completedAt,
-          };
-        }
-        return t;
-      })
-    );
-
-    if (linkedRoomId) {
-      setRooms((prev) =>
-        prev.map((r) => {
-          if (r.id === linkedRoomId) {
-            return {
-              ...r,
-              housekeepingStatus: status,
-              status: status === 'clean' && r.status === 'cleaning' ? 'available' : r.status,
-            };
-          }
-          return r;
-        })
-      );
+  const updateHousekeepingStatus = async (taskId: string, status: HousekeepingStatus): Promise<boolean> => {
+    try {
+      const updatedTask = await hotelApi.transitionHousekeepingTaskInDjango(taskId, status);
+      setHousekeepingTasks((prev) => prev.map((task) => task.id === taskId ? updatedTask : task));
+      setRooms(await hotelApi.fetchRoomsFromDjango());
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update housekeeping task.');
+      return false;
     }
   };
 
-  const createHousekeepingTask = (task: Omit<HousekeepingTask, 'id' | 'requestedAt'>) => {
-    const newTask: HousekeepingTask = {
-      ...task,
-      id: `hk-${Date.now()}`,
-      requestedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-    setHousekeepingTasks((prev) => [newTask, ...prev]);
-
-    // Keep room synced
-    setRooms((prev) =>
-      prev.map((r) =>
-        r.id === task.roomId
-          ? {
-              ...r,
-              housekeepingStatus: task.status,
-              assignedHousekeeper: task.assignedTo !== 'Unassigned' ? task.assignedTo : r.assignedHousekeeper,
-              status: task.status !== 'clean' && r.status === 'available' ? 'cleaning' : r.status,
-            }
-          : r
-      )
-    );
+  const createHousekeepingTask = async (
+    task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>
+  ): Promise<boolean> => {
+    try {
+      const createdTask = await hotelApi.createHousekeepingTaskInDjango(task);
+      setHousekeepingTasks((prev) => [createdTask, ...prev]);
+      setRooms(await hotelApi.fetchRoomsFromDjango());
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not create housekeeping task.');
+      return false;
+    }
   };
 
   const createMaintenanceTicket = (ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate'>) => {
@@ -887,24 +960,26 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     );
   };
 
-  const addGuest = (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>): Guest => {
-    const newGuest: Guest = {
-      ...guest,
-      id: `guest-${Date.now()}`,
-      totalStays: 0,
-      totalSpent: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setGuests((prev) => [newGuest, ...prev]);
-    return newGuest;
+  const addGuest = async (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>): Promise<Guest> => {
+    const createdGuest = await hotelApi.createGuestInDjango(guest);
+    setGuests((prev) => [createdGuest, ...prev]);
+    return createdGuest;
   };
 
-  const updateGuest = (guestId: string, updates: Partial<Guest>) => {
-    setGuests((prev) => prev.map((g) => (g.id === guestId ? { ...g, ...updates } : g)));
+  const updateGuest = async (guestId: string, updates: Partial<Guest>): Promise<boolean> => {
+    try {
+      const updatedGuest = await hotelApi.updateGuestInDjango(guestId, updates);
+      setGuests((prev) => prev.map((guest) => guest.id === guestId ? updatedGuest : guest));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update guest profile.');
+      return false;
+    }
   };
 
-  const updateSettings = (newSettings: Partial<HotelSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
+  const updateSettings = async (newSettings: Partial<HotelSettings>): Promise<void> => {
+    const persistedSettings = await hotelApi.updatePropertySettingsInDjango(newSettings);
+    setSettings((prev) => ({ ...prev, ...persistedSettings }));
   };
 
   const updateReservationSyncStatus = (
@@ -928,7 +1003,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   // Milestone 4: POS & Dining Methods
-  const createOrder = (data: {
+  const createOrder = async (data: {
     orderType: OrderType;
     outlet: string;
     tableId?: string;
@@ -943,55 +1018,31 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     specialInstructions?: string;
     waiterName?: string;
     sendToKitchenImmediately?: boolean;
-  }): RestaurantOrder => {
-    const subtotal = data.items.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
-    const serviceCharge = parseFloat((subtotal * (settings.serviceChargePercent / 100)).toFixed(2));
-    const vatAmount = parseFloat(((subtotal + serviceCharge) * (settings.vatRatePercent / 100)).toFixed(2));
-    const grandTotal = parseFloat((subtotal + serviceCharge + vatAmount).toFixed(2));
-
-    const orderId = `ord-${Date.now()}`;
-    const seqNum = Math.floor(1000 + Math.random() * 9000);
-    const orderNumber = `ORD-2026-${seqNum}`;
-    const kotNumber = `KOT-${Math.floor(100 + Math.random() * 900)}`;
-    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-    const orderItems: OrderItem[] = data.items.map((i, idx) => ({
-      id: `oi-${orderId}-${idx + 1}`,
-      menuItemId: i.menuItem.id,
-      name: i.menuItem.name,
-      nameAmharic: i.menuItem.nameAmharic,
-      quantity: i.quantity,
-      unitPrice: i.menuItem.price,
-      station: i.menuItem.station,
-      notes: i.notes,
-      itemStatus: data.sendToKitchenImmediately ? 'preparing' : 'queued',
-    }));
-
-    const newOrder: RestaurantOrder = {
-      id: orderId,
-      orderNumber,
-      kotNumber,
+  }): Promise<RestaurantOrder> => {
+    const newOrder = await hotelApi.createRestaurantOrderInDjango({
       orderType: data.orderType,
       outlet: data.outlet,
-      tableId: data.tableId,
       tableNumber: data.tableNumber,
-      roomId: data.roomId,
       roomNumber: data.roomNumber,
       reservationId: data.reservationId,
       guestName: data.guestName,
-      guestPhone: data.guestPhone,
-      waiterName: data.waiterName || 'Staff Waiter',
-      covers: data.covers || 1,
-      items: orderItems,
-      subtotal,
-      serviceCharge,
-      vatAmount,
-      grandTotal,
-      status: data.sendToKitchenImmediately ? 'sent_to_kitchen' : 'open',
-      createdAt: nowIso,
-      kotSentAt: data.sendToKitchenImmediately ? nowIso : undefined,
+      covers: data.covers,
+      items: data.items.map((item): OrderItem => ({
+        id: '',
+        menuItemId: item.menuItem.id,
+        name: item.menuItem.name,
+        nameAmharic: item.menuItem.nameAmharic,
+        quantity: item.quantity,
+        unitPrice: item.menuItem.price,
+        station: item.menuItem.station,
+        notes: item.notes,
+        itemStatus: data.sendToKitchenImmediately ? 'preparing' : 'queued',
+      })),
       specialInstructions: data.specialInstructions,
-    };
+      sendToKitchen: Boolean(data.sendToKitchenImmediately),
+    });
+    newOrder.tableId = data.tableId;
+    newOrder.roomId = data.roomId;
 
     setOrders((prev) => [newOrder, ...prev]);
 
@@ -1000,83 +1051,27 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setTables((prev) =>
         prev.map((t) =>
           t.id === data.tableId
-            ? { ...t, status: 'occupied', currentOrderId: orderId, assignedWaiter: data.waiterName || t.assignedWaiter }
+            ? { ...t, status: 'occupied', currentOrderId: newOrder.id, assignedWaiter: data.waiterName || t.assignedWaiter }
             : t
         )
       );
     }
 
-    addAuditLog({
-      actorName: data.waiterName || 'Staff Waiter',
-      actorRole: currentRole,
-      action: 'POS_ORDER_CREATED',
-      module: 'FOLIO',
-      details: `Created new ${data.orderType.replace('_', ' ')} order ${orderNumber} (${data.outlet}${data.tableNumber ? ` Table ${data.tableNumber}` : ''}) for ${grandTotal.toLocaleString()} ETB.`,
-      severity: 'info',
-      ipAddress: '192.168.1.35',
-    });
-
     return newOrder;
   };
 
-  const updateOrderItemStatus = (orderId: string, orderItemId: string, status: OrderItemStatus) => {
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== orderId) return order;
-
-        const updatedItems = order.items.map((item) =>
-          item.id === orderItemId ? { ...item, itemStatus: status } : item
-        );
-
-        // Check overall order status transition
-        const allReady = updatedItems.every((i) => i.itemStatus === 'ready' || i.itemStatus === 'served' || i.itemStatus === 'cancelled');
-        const allServed = updatedItems.every((i) => i.itemStatus === 'served' || i.itemStatus === 'cancelled');
-        const anyPreparing = updatedItems.some((i) => i.itemStatus === 'preparing');
-
-        let nextOrderStatus = order.status;
-        if (order.status !== 'settled' && order.status !== 'posted_to_room' && order.status !== 'voided') {
-          if (allServed) {
-            nextOrderStatus = 'served';
-          } else if (allReady) {
-            nextOrderStatus = 'ready';
-          } else if (anyPreparing) {
-            nextOrderStatus = 'in_preparation';
-          }
-        }
-
-        return {
-          ...order,
-          items: updatedItems,
-          status: nextOrderStatus,
-        };
-      })
-    );
-  };
-
-  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== orderId) return o;
-        const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
-        return {
-          ...o,
-          status,
-          kotSentAt: status === 'sent_to_kitchen' && !o.kotSentAt ? nowIso : o.kotSentAt,
-          settledAt: (status === 'settled' || status === 'posted_to_room') && !o.settledAt ? nowIso : o.settledAt,
-        };
-      })
-    );
-
-    // If order was voided or settled, free the table
-    if (status === 'voided' || status === 'settled') {
-      const order = orders.find((o) => o.id === orderId);
-      if (order?.tableId) {
-        setTables((prev) =>
-          prev.map((t) =>
-            t.id === order.tableId ? { ...t, status: 'available', currentOrderId: undefined } : t
-          )
-        );
-      }
+  const updateOrderItemStatus = async (
+    orderId: string,
+    orderItemId: string,
+    status: OrderItemStatus
+  ): Promise<boolean> => {
+    try {
+      const updatedOrder = await hotelApi.updateRestaurantOrderItemStatusInDjango(orderId, orderItemId, status);
+      setOrders((prev) => prev.map((order) => order.id === orderId ? updatedOrder : order));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update kitchen item status.');
+      return false;
     }
   };
 
@@ -1179,112 +1174,74 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   };
 
-  const settleOrderDirectly = (
+  const settleOrderDirectly = async (
     orderId: string,
     paymentMethod: PaymentMethod,
     reference?: string,
     telebirrTxId?: string
-  ) => {
+  ): Promise<boolean> => {
     const order = orders.find((o) => o.id === orderId);
-    if (!order) return;
+    if (!order) return false;
 
-    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              status: 'settled',
-              paymentMethod,
-              paymentReference: reference || `SETTLED-${Date.now().toString().slice(-6)}`,
-              telebirrTxId,
-              settledAt: nowIso,
-            }
-          : o
-      )
-    );
-
-    // If order has table, release it
-    if (order.tableId) {
-      setTables((prev) =>
-        prev.map((t) =>
-          t.id === order.tableId
-            ? { ...t, status: 'available', currentOrderId: undefined }
-            : t
-        )
-      );
+    try {
+      const updatedOrder = await hotelApi.settleRestaurantOrderInDjango(orderId, paymentMethod, reference, telebirrTxId);
+      setOrders((prev) => prev.map((item) => item.id === orderId ? updatedOrder : item));
+      if (order.tableId) {
+        setTables((prev) => prev.map((table) => table.id === order.tableId
+          ? { ...table, status: 'available', currentOrderId: undefined }
+          : table));
+      }
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not settle restaurant order.');
+      return false;
     }
-
-    addAuditLog({
-      actorName: 'Kenenisa Desta',
-      actorRole: currentRole,
-      action: 'POS_ORDER_SETTLED',
-      module: 'FOLIO',
-      details: `Settled ${order.orderNumber} (${order.grandTotal.toLocaleString()} ETB) via ${paymentMethod.toUpperCase()}${telebirrTxId ? ` (Tx: ${telebirrTxId})` : ''}.`,
-      severity: 'info',
-      ipAddress: '192.168.1.44',
-    });
   };
 
-  const voidOrder = (orderId: string, reason: string) => {
+  const voidOrder = async (orderId: string, reason: string): Promise<boolean> => {
     const order = orders.find((o) => o.id === orderId);
-    if (!order) return;
+    if (!order) return false;
 
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              status: 'voided',
-              voidReason: reason,
-            }
-          : o
-      )
-    );
-
-    if (order.tableId) {
-      setTables((prev) =>
-        prev.map((t) =>
-          t.id === order.tableId
-            ? { ...t, status: 'available', currentOrderId: undefined }
-            : t
-        )
-      );
+    try {
+      const updatedOrder = await hotelApi.voidRestaurantOrderInDjango(orderId, reason);
+      setOrders((prev) => prev.map((item) => item.id === orderId ? updatedOrder : item));
+      if (order.tableId) {
+        setTables((prev) => prev.map((table) => table.id === order.tableId
+          ? { ...table, status: 'available', currentOrderId: undefined }
+          : table));
+      }
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not void restaurant order.');
+      return false;
     }
-
-    addAuditLog({
-      actorName: 'Yonas Haile',
-      actorRole: currentRole,
-      action: 'POS_ORDER_VOIDED',
-      module: 'FOLIO',
-      details: `Voided order ${order.orderNumber}. Reason: ${reason}.`,
-      severity: 'warning',
-      ipAddress: '192.168.1.25',
-    });
   };
 
-  const toggleMenuItemAvailability = (menuItemId: string) => {
-    setMenuItems((prev) =>
-      prev.map((item) =>
-        item.id === menuItemId ? { ...item, isAvailable: !item.isAvailable } : item
-      )
-    );
+  const toggleMenuItemAvailability = async (menuItemId: string): Promise<boolean> => {
+    const current = menuItems.find((item) => item.id === menuItemId);
+    if (!current) return false;
+    return updateMenuItem(menuItemId, { isAvailable: !current.isAvailable });
   };
 
-  const updateMenuItem = (menuItemId: string, updates: Partial<MenuItem>) => {
-    setMenuItems((prev) =>
-      prev.map((item) => (item.id === menuItemId ? { ...item, ...updates } : item))
-    );
+  const updateMenuItem = async (menuItemId: string, updates: Partial<MenuItem>): Promise<boolean> => {
+    try {
+      const updated = await hotelApi.updateRestaurantMenuItemInDjango(menuItemId, updates);
+      setMenuItems((prev) => prev.map((item) => item.id === menuItemId ? updated : item));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update the restaurant menu item.');
+      return false;
+    }
   };
 
-  const addMenuItem = (itemData: Omit<MenuItem, 'id'>): MenuItem => {
+  const addMenuItem = async (itemData: Omit<MenuItem, 'id'>): Promise<MenuItem> => {
     const newItem: MenuItem = {
       ...itemData,
       id: `menu-custom-${Date.now()}`,
     };
-    setMenuItems((prev) => [...prev, newItem]);
-    return newItem;
+    const created = await hotelApi.createRestaurantMenuItemInDjango(newItem);
+    setMenuItems((prev) => [...prev, created]);
+    return created;
   };
 
   const updateTableStatus = (tableId: string, status: TableStatus, assignedWaiter?: string) => {
@@ -1363,138 +1320,37 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const runNightAudit = async (notes?: string, closedBy?: string): Promise<NightAuditReport> => {
     const currentBDate = settings.businessDate || getRelativeDate(0);
     const auditorName = closedBy || 'Front Office Night Auditor';
-
-    // 1. Calculate operational flash metrics
-    const flash = getDailyFlashReport(currentBDate);
-    const inHouse = reservations.filter((r) => r.status === 'checked_in');
-
-    // 2. Auto-post nightly room charge to active in-house reservations
-    let postedCount = 0;
-    const updatedReservations = reservations.map((res) => {
-      if (res.status === 'checked_in') {
-        postedCount++;
-        const nightlyRate = Math.round((res.roomRateTotal / Math.max(1, res.nights)) * 100) / 100;
-        const nightlySvc = Math.round(nightlyRate * (settings.serviceChargePercent / 100) * 100) / 100;
-        const nightlyVat = Math.round(nightlyRate * (settings.vatRatePercent / 100) * 100) / 100;
-        const nightlyTotal = Math.round((nightlyRate + nightlySvc + nightlyVat) * 100) / 100;
-
-        const newChargeItem: FolioItem = {
-          id: `f-night-${Date.now()}-${res.id}`,
-          date: currentBDate,
-          description: `Nightly Room Charge (${currentBDate}) - Room ${res.roomNumber}`,
-          category: 'room',
-          amount: nightlyTotal,
-        };
-
-        return {
-          ...res,
-          folioCharges: [...res.folioCharges, newChargeItem],
-          grandTotal: Math.round((res.grandTotal + nightlyTotal) * 100) / 100,
-          balanceDue: Math.round((res.balanceDue + nightlyTotal) * 100) / 100,
-        };
-      }
-
-      // Check no-shows: if checkInDate was today and status is still confirmed, auto-mark no_show
-      if (res.status === 'confirmed' && res.checkInDate === currentBDate) {
-        return {
-          ...res,
-          status: 'no_show' as any,
-        };
-      }
-
-      return res;
-    });
-
-    setReservations(updatedReservations);
-
-    // 3. Roll business date forward by 1 day
-    const nextBDate = (() => {
-      const parts = currentBDate.split('-');
-      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-      d.setDate(d.getDate() + 1);
-      return d.toISOString().split('T')[0];
-    })();
-
-    // 4. Generate SHA-256 seal
-    const rawSeal = `${currentBDate}:${flash.grossRevenue}:${auditorName}:${inHouse.length}`;
-    let hashVal = 0;
-    for (let i = 0; i < rawSeal.length; i++) {
-      hashVal = (hashVal << 5) - hashVal + rawSeal.charCodeAt(i);
-      hashVal |= 0;
-    }
-    const auditChecksum = Math.abs(hashVal).toString(16).toUpperCase().padStart(16, '0') + '-ETB-SEAL';
-
-    // 5. In-house guest manifest
-    const inHouseGuestList = inHouse.map((r) => ({
-      confirmationCode: r.confirmationCode,
-      guestName: r.guestName,
-      roomNumber: r.roomNumber,
-      roomType: r.roomType,
-      balanceDue: r.balanceDue,
-    }));
-
-    const newReport: NightAuditReport = {
-      id: `na-${Date.now()}`,
+    const result = await hotelApi.executeNightAudit({
       businessDate: currentBDate,
-      nextBusinessDate: nextBDate,
-      closedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
       closedBy: auditorName,
-      auditorRole: currentRole || 'Front Office Manager',
-      status: 'completed',
-      totalRooms: flash.totalRooms,
-      occupiedRooms: flash.occupiedRooms,
-      occupancyRate: flash.occupancyRate,
-      adr: flash.adr,
-      revpar: flash.revpar,
-      roomRevenue: flash.roomRevenue,
-      fbRevenue: flash.fbRevenue,
-      spaRevenue: flash.spaRevenue,
-      transportRevenue: 0,
-      miscRevenue: flash.otherRevenue,
-      serviceChargeTotal: flash.serviceCharge,
-      vatTotal: flash.vat15Percent,
-      grossRevenue: flash.grossRevenue,
-      settlements: {
-        telebirr: flash.telebirrTotal,
-        cash: flash.cashTotal,
-        cbeCard: flash.cbeTotal,
-        bankTransfer: 0,
-      },
-      postedRoomChargesCount: postedCount,
-      noShowsProcessedCount: reservations.filter((r) => r.status === 'confirmed' && r.checkInDate === currentBDate).length,
-      auditChecksum,
-      notes: notes || `Night audit completed by ${auditorName}. Business date rolled from ${currentBDate} to ${nextBDate}.`,
-      inHouseGuestList,
-    };
+      notes: notes || '',
+      processNoShows: true,
+    });
+    const { report } = result;
 
-    setNightAuditReports((prev) => [newReport, ...prev]);
-
-    // 6. Update HotelSettings business date & status
+    setNightAuditReports((prev) => [
+      report,
+      ...prev.filter((item) => item.businessDate !== report.businessDate),
+    ]);
     setSettings((prev) => ({
       ...prev,
-      businessDate: nextBDate,
+      businessDate: report.nextBusinessDate,
       nightAuditStatus: 'completed',
     }));
 
-    // 7. Add Audit Log entry
-    addAuditLog({
-      actorName: auditorName,
-      actorRole: currentRole || 'Front Office Manager',
-      action: 'NIGHT_AUDIT_BUSINESS_DATE_CLOSE',
-      module: 'NIGHT_AUDIT',
-      details: `Night audit finalized for business date ${currentBDate}. Rolled to ${nextBDate}. Gross Revenue: ${flash.grossRevenue.toLocaleString()} ETB. Occupancy: ${flash.occupancyRate}%. Seal: ${auditChecksum}`,
-      severity: 'info',
-      ipAddress: '192.168.1.15',
-    });
-
-    // 8. Sync with Django backend if active
-    try {
-      await hotelApi.syncNightAuditToDjango(newReport);
-    } catch {
-      // Safe local fallback
+    if (!result.alreadyClosed) {
+      addAuditLog({
+        actorName: report.closedBy,
+        actorRole: report.auditorRole,
+        action: 'NIGHT_AUDIT_BUSINESS_DATE_CLOSE',
+        module: 'NIGHT_AUDIT',
+        details: `Night audit finalized for ${report.businessDate}. Rolled to ${report.nextBusinessDate}. Gross revenue: ${report.grossRevenue.toLocaleString()} ETB. Occupancy: ${report.occupancyRate}%. Seal: ${report.auditChecksum}`,
+        severity: 'info',
+        ipAddress: '192.168.1.15',
+      });
     }
 
-    return newReport;
+    return report;
   };
 
   const reopenBusinessDate = (reportId: string, reason: string) => {
@@ -1706,8 +1562,10 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         checkOutReservation,
         createReservation,
         cancelReservation,
+        markReservationNoShow,
         updateRoomStatus,
         updateRoom,
+        saveRoom,
         addRoom,
         assignHousekeeper,
         updateHousekeepingStatus,
@@ -1723,7 +1581,6 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         resetToDemoData,
         createOrder,
         updateOrderItemStatus,
-        updateOrderStatus,
         postOrderToRoomFolio,
         settleOrderDirectly,
         voidOrder,

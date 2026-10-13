@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Calendar,
@@ -11,7 +11,6 @@ import {
   Clock,
   CreditCard,
   CheckCircle,
-  Server,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Room, PaymentMethod } from '../../types/hotel';
@@ -29,7 +28,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   onClose,
   onCreated,
 }) => {
-  const { rooms, guests, settings, createReservation, updateReservationSyncStatus } = useHotel();
+  const { guests, settings, createReservation } = useHotel();
 
   // Guest fields
   const [selectedGuestId, setSelectedGuestId] = useState<string>('');
@@ -43,11 +42,41 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   const [adults, setAdults] = useState<number>(2);
   const [children, setChildren] = useState<number>(0);
 
-  // Room
-  const availableRooms = rooms.filter((r) => r.status === 'available' || r.id === initialRoom?.id);
-  const [selectedRoomId, setSelectedRoomId] = useState<string>(
-    initialRoom ? initialRoom.id : availableRooms[0]?.id || ''
-  );
+  // Room availability is calculated for the selected stay dates by Django.
+  const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>(initialRoom?.id || '');
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(true);
+  const [availabilityError, setAvailabilityError] = useState('');
+
+  useEffect(() => {
+    let isCurrent = true;
+    setIsLoadingAvailability(true);
+    setAvailabilityError('');
+
+    hotelApi.fetchAvailableRoomsFromDjango(checkInDate, checkOutDate)
+      .then((roomsForDates) => {
+        if (!isCurrent) return;
+        setAvailableRooms(roomsForDates);
+        setSelectedRoomId((currentRoomId) => {
+          if (roomsForDates.some((room) => room.id === currentRoomId)) return currentRoomId;
+          if (initialRoom && roomsForDates.some((room) => room.id === initialRoom.id)) return initialRoom.id;
+          return roomsForDates[0]?.id || '';
+        });
+      })
+      .catch((error) => {
+        if (!isCurrent) return;
+        setAvailableRooms([]);
+        setSelectedRoomId('');
+        setAvailabilityError(error instanceof Error ? error.message : 'Could not check availability.');
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoadingAvailability(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [checkInDate, checkOutDate, initialRoom?.id]);
 
   // Add-ons
   const [breakfast, setBreakfast] = useState(false);
@@ -92,7 +121,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   };
 
   // Calculations
-  const targetRoom = rooms.find((r) => r.id === selectedRoomId);
+  const targetRoom = availableRooms.find((r) => r.id === selectedRoomId);
   const start = new Date(checkInDate);
   const end = new Date(checkOutDate);
   const diffTime = Math.max(end.getTime() - start.getTime(), 86400000);
@@ -130,19 +159,22 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   else if (paymentOption === 'deposit') initialDepositAmount = Math.min(customDeposit, grandTotal);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guestName || !guestEmail || !selectedRoomId) {
       alert('Please complete all required fields.');
       return;
     }
+    if (isLoadingAvailability || availabilityError || !availableRooms.some((room) => room.id === selectedRoomId)) {
+      alert('Select a room available for these dates.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      // 1. Authoritative client-side registry persistence
-      const newRes = createReservation({
+      const vatVal = parseFloat(((subtotal * (settings.vatRatePercent || 15)) / 100).toFixed(2));
+      const svsVal = parseFloat(((subtotal * (settings.serviceChargePercent || 10)) / 100).toFixed(2));
+      const newRes = await createReservation({
         guestName,
         guestEmail,
         guestPhone,
@@ -162,47 +194,18 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
         initialDeposit: initialDepositAmount,
         paymentMethod,
         directCheckIn,
+        bookingSource,
+        idType,
+        idNumber,
+        ratePlanName: ratePlanTitle,
+        financials: {
+          roomRateTotal: roomRate,
+          addOnsTotal,
+          vatAmount: vatVal,
+          serviceChargeAmount: svsVal,
+          grandTotal,
+        },
       });
-
-      // 2. Dispatch HTTP sync to Django REST Framework backend on port 8000
-      try {
-        const vatVal = parseFloat(((subtotal * (settings.vatRatePercent || 15)) / 100).toFixed(2));
-        const svsVal = parseFloat(((subtotal * (settings.serviceChargePercent || 10)) / 100).toFixed(2));
-        hotelApi.syncReservationToDjango({
-          guest_name: guestName,
-          guest_email: guestEmail,
-          guest_phone: guestPhone,
-          id_type: idType,
-          id_number: idNumber,
-          room_number: targetRoom?.roomNumber || '',
-          room_id: selectedRoomId,
-          rate_plan_name: ratePlanTitle,
-          check_in_date: checkInDate,
-          check_out_date: checkOutDate,
-          adults,
-          children,
-          source: bookingSource,
-          special_requests: specialRequests,
-          room_rate_total_etb: roomRate,
-          vat_etb: vatVal,
-          service_charge_etb: svsVal,
-          grand_total_etb: grandTotal,
-          deposit_paid_etb: initialDepositAmount,
-          payment_method: paymentMethod,
-          confirmation_code: newRes.confirmationCode,
-        }).then((syncResult) => {
-          if (syncResult.syncedToDjango) {
-            console.log('✅ Successfully synced reservation to Django backend:', syncResult.data);
-            updateReservationSyncStatus(newRes.id, true, undefined, syncResult.data?.id);
-          } else {
-            console.warn('ℹ️ Django backend notice:', syncResult.error);
-            updateReservationSyncStatus(newRes.id, false, syncResult.error);
-          }
-        });
-      } catch (syncErr: any) {
-        updateReservationSyncStatus(newRes.id, false, syncErr?.message || 'Sync error');
-        console.warn('Backend sync bypassed - stored in local state:', syncErr);
-      }
 
       onCreated(newRes.id);
     } catch (err: any) {
@@ -419,11 +422,15 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
             {/* Room Picker */}
             <div>
               <label className="font-bold text-slate-700 block mb-1">
-                Select Room ({availableRooms.length} available) *
+                Select Room ({isLoadingAvailability ? 'checking' : availableRooms.length} available) *
               </label>
-              {availableRooms.length === 0 ? (
+              {isLoadingAvailability ? (
+                <div className="p-3 bg-slate-50 text-slate-600 rounded-lg border border-slate-200">Checking availability...</div>
+              ) : availabilityError ? (
+                <div role="alert" className="p-3 bg-rose-50 text-rose-700 rounded-lg border border-rose-200">{availabilityError}</div>
+              ) : availableRooms.length === 0 ? (
                 <div className="p-3 bg-rose-50 text-rose-700 rounded-lg border border-rose-200">
-                  No rooms are currently marked available. You can change a room's status in the Rooms tab.
+                  No rooms are available for these dates.
                 </div>
               ) : (
                 <select
@@ -638,7 +645,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!selectedRoomId}
+              disabled={!selectedRoomId || isLoadingAvailability || Boolean(availabilityError)}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 text-white font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
             >
               Confirm Reservation

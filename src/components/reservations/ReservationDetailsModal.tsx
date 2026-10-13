@@ -439,19 +439,17 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
           {currentRes.status === 'confirmed' ? (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  checkInReservation(currentRes.id);
-                  onClose();
+                onClick={async () => {
+                  if (await checkInReservation(currentRes.id)) onClose();
                 }}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <CalendarCheck className="w-4 h-4" /> Check In Guest
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (window.confirm('Cancel this confirmed booking?')) {
-                    cancelReservation(currentRes.id);
-                    onClose();
+                    if (await cancelReservation(currentRes.id)) onClose();
                   }
                 }}
                 className="px-3 py-2 text-rose-600 hover:bg-rose-50 text-xs font-semibold rounded-lg cursor-pointer"
@@ -462,7 +460,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
           ) : currentRes.status === 'checked_in' ? (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (currentRes.balanceDue > 0) {
                     if (
                       !window.confirm(
@@ -472,8 +470,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
                       return;
                     }
                   }
-                  checkOutReservation(currentRes.id);
-                  onClose();
+                  if (await checkOutReservation(currentRes.id)) onClose();
                 }}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
               >

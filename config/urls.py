@@ -17,14 +17,22 @@ Including another URLconf
 # config/urls.py
 from django.contrib import admin
 from django.urls import path, include
+from apps.accounts.auth_views import current_user
+from apps.properties.views import CurrentPropertyConfigView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/v1/auth/me/', current_user, name='current-user'),
+    path('api/v1/properties/current/', CurrentPropertyConfigView.as_view(),
+         name='current-property-config'),
     path('api/v1/rooms/', include('apps.rooms.urls')),
     path('api/v1/reservations/', include('apps.reservations.urls')),
     path('api/v1/guests/', include('apps.guests.urls')),
     path('api/v1/billing/', include('apps.billing.urls')),
     path('api/v1/housekeeping/', include('apps.housekeeping.urls')),
+    path('api/v1/restaurant/', include('apps.restaurant.urls')),
+    path('api/v1/kitchen/', include('apps.kitchen.urls')),
+    path('api/v1/inventory/', include('apps.inventory.urls')),
     path('api/v1/reporting/', include('apps.reporting.urls')),
     path('api/v1/audit/', include('apps.audit.urls')),
 ]

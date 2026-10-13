@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Moon,
   CheckCircle2,
@@ -21,7 +21,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
-import { Reservation, StaffRole } from '../../types/hotel';
+import { hotelApi } from '../../api/hotelApi';
+import { DailyFlashReportData, Reservation, StaffRole } from '../../types/hotel';
 
 interface NightAuditWizardModalProps {
   onClose: () => void;
@@ -42,6 +43,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
     runNightAudit,
     checkInReservation,
     cancelReservation,
+    markReservationNoShow,
     checkOutReservation,
   } = useHotel();
 
@@ -50,13 +52,37 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
   const [completedReport, setCompletedReport] = useState<any | null>(null);
 
   // Form state
-  const [auditorName, setAuditorName] = useState('Solomon Demissie');
-  const [handoverNotes, setHandoverNotes] = useState(
-    'End of day night audit executed. All active in-house room charges posted with Ethiopian 10% service charge and 15% VAT. Front desk telebirr drawer reconciled.'
-  );
-  const [syncToDjango, setSyncToDjango] = useState(true);
+  const [auditorName, setAuditorName] = useState('');
+  const [handoverNotes, setHandoverNotes] = useState('');
+  const [dailyFlashReport, setDailyFlashReport] = useState<DailyFlashReportData | null>(null);
+  const [isLoadingDailyFlash, setIsLoadingDailyFlash] = useState(true);
+  const [dailyFlashError, setDailyFlashError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
 
   const businessDate = settings.businessDate || new Date().toISOString().split('T')[0];
+
+  useEffect(() => {
+    let isCurrent = true;
+    setIsLoadingDailyFlash(true);
+    setDailyFlashError(null);
+    hotelApi.fetchDailyFlashReportFromDjango(businessDate)
+      .then(({ report }) => {
+        if (isCurrent) setDailyFlashReport(report);
+      })
+      .catch((error) => {
+        if (isCurrent) {
+          setDailyFlashReport(null);
+          setDailyFlashError(error instanceof Error ? error.message : 'Could not load the daily flash from the hotel server.');
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoadingDailyFlash(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [businessDate]);
 
   // 1. Checklist calculations
   const pendingArrivals = reservations.filter(
@@ -102,28 +128,27 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
   const totalNightlyPostings = postingsPreview.reduce((sum, p) => sum + p.totalDaily, 0);
 
   // 3. Overall Daily Financial Snapshot
-  const settledFbRevenue = orders
-    .filter((o) => (o.status === 'settled' || o.status === 'posted_to_room') && o.createdAt.startsWith(businessDate))
-    .reduce((sum, o) => sum + o.subtotal, 0) || 5400;
-  const spaRevenue = 1400;
-  const otherRevenue = 850;
-  const taxableSubtotal = totalNightlyRoomRevenue + settledFbRevenue + spaRevenue + otherRevenue;
+  const settledFbRevenue = dailyFlashReport?.fbRevenue || 0;
+  const spaRevenue = dailyFlashReport?.spaRevenue || 0;
+  const otherRevenue = dailyFlashReport?.otherRevenue || 0;
+  const taxableSubtotal = (dailyFlashReport?.subtotal || 0) + totalNightlyRoomRevenue;
   const dailyServiceCharge = Math.round(taxableSubtotal * (settings.serviceChargePercent / 100) * 100) / 100;
   const dailyVat = Math.round((taxableSubtotal + dailyServiceCharge) * (settings.vatRatePercent / 100) * 100) / 100;
   const dailyGrossRevenue = Math.round((taxableSubtotal + dailyServiceCharge + dailyVat) * 100) / 100;
 
-  const telebirrSettled = Math.round(dailyGrossRevenue * 0.65 * 100) / 100;
-  const cbeCardSettled = Math.round(dailyGrossRevenue * 0.20 * 100) / 100;
-  const cashSettled = Math.round((dailyGrossRevenue - telebirrSettled - cbeCardSettled) * 100) / 100;
+  const telebirrSettled = dailyFlashReport?.telebirrTotal || 0;
+  const cbeCardSettled = dailyFlashReport?.cbeTotal || 0;
+  const cashSettled = dailyFlashReport?.cashTotal || 0;
 
   // Handle finalize
   const handleExecuteAudit = async () => {
     setIsExecuting(true);
+    setAuditError(null);
     try {
       const report = await runNightAudit(handoverNotes, auditorName);
       setCompletedReport(report);
     } catch (err) {
-      console.error('Audit execution error:', err);
+      setAuditError(err instanceof Error ? err.message : 'Night audit could not be completed.');
     } finally {
       setIsExecuting(false);
     }
@@ -351,9 +376,9 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                             Check In ({pendingArrivals[0]?.guestName?.split(' ')[0]})
                           </button>
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               if (pendingArrivals[0]) {
-                                cancelReservation(pendingArrivals[0].id);
+                                await markReservationNoShow(pendingArrivals[0].id);
                               }
                             }}
                             className="px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold transition-colors"
@@ -475,7 +500,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                         Step 2: Automated Nightly Room & Tax Postings
                       </h3>
                       <p className="text-xs text-slate-500">
-                        The system will automatically calculate and post nightly room charges, 10% Service Charge, and 15% VAT to all in-house guest folios.
+                        The server will post each in-house nightly room charge and apply the configured property rates during close.
                       </p>
                     </div>
                     <div className="text-right">
@@ -496,8 +521,8 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                             <th className="py-2.5 px-3">Guest Name</th>
                             <th className="py-2.5 px-3">Room Type</th>
                             <th className="py-2.5 px-3 text-right">Daily Rate</th>
-                            <th className="py-2.5 px-3 text-right">Svc (10%)</th>
-                            <th className="py-2.5 px-3 text-right">VAT (15%)</th>
+                            <th className="py-2.5 px-3 text-right">Svc ({settings.serviceChargePercent}%)</th>
+                            <th className="py-2.5 px-3 text-right">VAT ({settings.vatRatePercent}%)</th>
                             <th className="py-2.5 px-3 text-right">Total Nightly</th>
                           </tr>
                         </thead>
@@ -540,7 +565,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                       <div className="flex items-center gap-4">
                         <span>Net Room: {totalNightlyRoomRevenue.toLocaleString()} ETB</span>
                         <span>Service Charge: {totalNightlySvc.toLocaleString()} ETB</span>
-                        <span>VAT (15%): {totalNightlyVat.toLocaleString()} ETB</span>
+                        <span>VAT ({settings.vatRatePercent}%): {totalNightlyVat.toLocaleString()} ETB</span>
                       </div>
                     </div>
                   </div>
@@ -555,11 +580,26 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                       Step 3: Revenue & Settlement Balancing
                     </h3>
                     <p className="text-xs text-slate-500">
-                      Consolidated operating ledger for business date {businessDate} across all departments.
+                      Persisted activity for business date {businessDate}; projected room charges are shown separately.
                     </p>
                   </div>
 
+                  <div className={`p-3 rounded-lg border text-xs ${
+                    isLoadingDailyFlash
+                      ? 'bg-slate-50 border-slate-200 text-slate-600'
+                      : dailyFlashError
+                        ? 'bg-amber-50 border-amber-200 text-amber-900'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  }`} role={dailyFlashError ? 'alert' : 'status'}>
+                    {isLoadingDailyFlash
+                      ? 'Loading persisted financial totals from the hotel server...'
+                      : dailyFlashError
+                        ? `Live financial preview unavailable: ${dailyFlashError}. Displayed totals are not estimates; the server will calculate the final close.`
+                        : 'Revenue and settlements are loaded from the persisted hotel ledger. Final figures are recalculated during close.'}
+                  </div>
+
                   {/* Revenue Breakdown Grid */}
+                  {dailyFlashReport && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Departmental Revenue */}
                     <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3">
@@ -573,7 +613,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                         <div className="flex justify-between text-slate-600">
                           <span>Room Revenue</span>
                           <span className="font-semibold text-slate-900">
-                            {totalNightlyRoomRevenue.toLocaleString()} ETB
+                            {((dailyFlashReport?.roomRevenue || 0) + totalNightlyRoomRevenue).toLocaleString()} ETB
                           </span>
                         </div>
                         <div className="flex justify-between text-slate-600">
@@ -599,11 +639,11 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                           <span>{taxableSubtotal.toLocaleString()} ETB</span>
                         </div>
                         <div className="flex justify-between text-slate-600">
-                          <span>Service Charge (10%)</span>
+                          <span>Service Charge ({settings.serviceChargePercent}%)</span>
                           <span>{dailyServiceCharge.toLocaleString()} ETB</span>
                         </div>
                         <div className="flex justify-between text-slate-600">
-                          <span>VAT (15% ERCA)</span>
+                          <span>VAT ({settings.vatRatePercent}% ERCA)</span>
                           <span>{dailyVat.toLocaleString()} ETB</span>
                         </div>
                         <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-indigo-700 text-sm">
@@ -619,7 +659,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                           Settlement Method Split
                         </span>
-                        <span className="text-xs font-semibold text-emerald-600">Reconciled</span>
+                          <span className="text-xs font-semibold text-slate-500">From completed payments</span>
                       </div>
                       <div className="space-y-3 text-xs">
                         <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -627,7 +667,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                             <span>Telebirr SuperApp (Merchant: 194022)</span>
                             <span>{telebirrSettled.toLocaleString()} ETB</span>
                           </div>
-                          <span className="text-[11px] text-emerald-700">65% of Total Settlements</span>
+                          <span className="text-[11px] text-emerald-700">Recorded Telebirr payments</span>
                         </div>
 
                         <div className="p-2.5 rounded-lg bg-indigo-50 border border-indigo-200">
@@ -635,7 +675,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                             <span>CBE Birr / CBE Debit Cards</span>
                             <span>{cbeCardSettled.toLocaleString()} ETB</span>
                           </div>
-                          <span className="text-[11px] text-indigo-700">20% of Total Settlements</span>
+                          <span className="text-[11px] text-indigo-700">Recorded CBE/card payments</span>
                         </div>
 
                         <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
@@ -643,7 +683,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                             <span>Front Desk Cash Drawer</span>
                             <span>{cashSettled.toLocaleString()} ETB</span>
                           </div>
-                          <span className="text-[11px] text-amber-700">15% of Total Settlements</span>
+                          <span className="text-[11px] text-amber-700">Recorded cash payments</span>
                         </div>
                       </div>
 
@@ -656,6 +696,7 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -711,23 +752,11 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                     />
                   </div>
 
-                  {/* Django REST sync option */}
-                  <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-purple-700" />
-                      <span className="text-xs font-medium text-purple-950">
-                        Synchronize Night Audit Closure to Django Backend
-                      </span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={syncToDjango}
-                        onChange={(e) => setSyncToDjango(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
-                    </label>
+                  <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-indigo-700" />
+                    <span className="text-xs font-medium text-indigo-950">
+                      Close and financial totals are committed by the authenticated hotel server.
+                    </span>
                   </div>
 
                   {/* Confirmation Warning */}
@@ -740,6 +769,11 @@ export const NightAuditWizardModal: React.FC<NightAuditWizardModalProps> = ({
                       </p>
                     </div>
                   </div>
+                  {auditError && (
+                    <div role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+                      Night audit was not closed: {auditError}
+                    </div>
+                  )}
                 </div>
               )}
             </>

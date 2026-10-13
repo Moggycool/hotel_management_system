@@ -53,11 +53,12 @@ export const OrderHistoryTab: React.FC = () => {
     });
   }, [orders, statusFilter, typeFilter, searchQuery]);
 
-  const handleConfirmVoid = () => {
+  const handleConfirmVoid = async () => {
     if (!orderToVoid || !voidReason.trim()) return;
-    voidOrder(orderToVoid.id, voidReason.trim());
-    setOrderToVoid(null);
-    setVoidReason('');
+    if (await voidOrder(orderToVoid.id, voidReason.trim())) {
+      setOrderToVoid(null);
+      setVoidReason('');
+    }
   };
 
   return (

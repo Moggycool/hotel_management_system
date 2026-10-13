@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     'apps.billing',
     'apps.housekeeping',
     'apps.reporting',
+    'apps.restaurant',
+    'apps.kitchen',
+    'apps.inventory',
     'apps.core',
     'corsheaders',
 ]
@@ -89,9 +92,11 @@ CORS_ALLOW_METHODS = [
 ]
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],  # Stateless by default: no CSRF enforcement on REST API
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.BasicAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
 }
 

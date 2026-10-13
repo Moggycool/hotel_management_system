@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plus, BedDouble } from 'lucide-react';
-import { Room, RoomType, RoomStatus } from '../../types/hotel';
+import { RoomType } from '../../types/hotel';
 import { useHotel } from '../../context/HotelContext';
 
 interface AddRoomModalProps {
@@ -12,13 +12,11 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
   const [roomNumber, setRoomNumber] = useState('');
   const [floor, setFloor] = useState(1);
   const [type, setType] = useState<RoomType>('Standard King');
-  const [pricePerNight, setPricePerNight] = useState(200);
-  const [capacity, setCapacity] = useState(2);
-  const [bedType, setBedType] = useState('1 King Bed');
-  const [sizeSqFt, setSizeSqFt] = useState(400);
-  const [amenitiesInput, setAmenitiesInput] = useState('High-speed Wi-Fi, Smart TV 55", Nespresso Machine, Rain Shower');
+  const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomNumber) return;
 
@@ -27,25 +25,21 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
       return;
     }
 
-    const amenities = amenitiesInput
-      .split(',')
-      .map((a) => a.trim())
-      .filter(Boolean);
-
-    addRoom({
-      roomNumber: roomNumber.trim(),
-      floor: Number(floor),
-      type,
-      pricePerNight: Number(pricePerNight),
-      capacity: Number(capacity),
-      bedType,
-      sizeSqFt: Number(sizeSqFt),
-      amenities,
-      status: 'available',
-      housekeepingStatus: 'clean',
-    });
-
-    onClose();
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await addRoom({
+        roomNumber: roomNumber.trim(),
+        floor: Number(floor),
+        type,
+        notes: notes.trim(),
+      });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not create room.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -100,83 +94,27 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
             <label className="font-bold text-slate-700 block mb-1">Room Category</label>
             <select
               value={type}
-              onChange={(e) => {
-                const t = e.target.value as RoomType;
-                setType(t);
-                if (t === 'Standard King') setPricePerNight(180);
-                if (t === 'Deluxe Ocean View') setPricePerNight(280);
-                if (t === 'Executive Suite') setPricePerNight(420);
-                if (t === 'Presidential Penthouse') setPricePerNight(950);
-                if (t === 'Garden Villa') setPricePerNight(350);
-                if (t === 'Family Suite') setPricePerNight(460);
-              }}
+              onChange={(e) => setType(e.target.value as RoomType)}
               className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             >
               <option value="Standard King">Standard King</option>
               <option value="Deluxe Ocean View">Deluxe Ocean View</option>
               <option value="Executive Suite">Executive Suite</option>
-              <option value="Presidential Penthouse">Presidential Penthouse</option>
               <option value="Garden Villa">Garden Villa</option>
-              <option value="Family Suite">Family Suite</option>
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Price per Night ($)</label>
-              <input
-                type="number"
-                min="50"
-                step="10"
-                value={pricePerNight}
-                onChange={(e) => setPricePerNight(Number(e.target.value))}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Guest Capacity</label>
-              <input
-                type="number"
-                min="1"
-                max="8"
-                value={capacity}
-                onChange={(e) => setCapacity(Number(e.target.value))}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Bed Configuration</label>
-              <input
-                type="text"
-                value={bedType}
-                onChange={(e) => setBedType(e.target.value)}
-                placeholder="1 King Bed"
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">Room Area (sq ft)</label>
-              <input
-                type="number"
-                value={sizeSqFt}
-                onChange={(e) => setSizeSqFt(Number(e.target.value))}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="font-bold text-slate-700 block mb-1">Amenities (comma-separated)</label>
-            <textarea
-              rows={2}
-              value={amenitiesInput}
-              onChange={(e) => setAmenitiesInput(e.target.value)}
+            <label className="font-bold text-slate-700 block mb-1">Room Notes</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
               className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             />
           </div>
+
+          {saveError && <p role="alert" className="text-rose-700">{saveError}</p>}
 
           <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
             <button
@@ -188,9 +126,10 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-xs cursor-pointer"
+              disabled={isSaving}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg font-bold shadow-xs cursor-pointer"
             >
-              Add Room
+              {isSaving ? 'Adding...' : 'Add Room'}
             </button>
           </div>
         </form>

@@ -51,7 +51,7 @@ export const SettleOrderModal: React.FC<SettleOrderModalProps> = ({
     }
   };
 
-  const finalizeSettlement = () => {
+  const finalizeSettlement = async () => {
     setIsProcessing(true);
     const txId =
       paymentMethod === 'telebirr'
@@ -64,11 +64,9 @@ export const SettleOrderModal: React.FC<SettleOrderModalProps> = ({
 
     setGeneratedTxId(txId);
 
-    setTimeout(() => {
-      settleOrderDirectly(order.id, paymentMethod, txId, txId);
-      setIsProcessing(false);
-      setStep('completed');
-    }, 600);
+    const settled = await settleOrderDirectly(order.id, paymentMethod, txId, txId);
+    setIsProcessing(false);
+    if (settled) setStep('completed');
   };
 
   return (

@@ -2,7 +2,7 @@ import uuid
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from apps.rooms.models import Room
+from apps.rooms.models import Room, RoomStatus
 
 
 class HousekeepingTask(models.Model):
@@ -79,8 +79,9 @@ class HousekeepingTask(models.Model):
         self.inspected_by = supervisor
         self.save()
         self.room.housekeeping_status = 'CLEAN'
-        self.room.status = 'VACANT_CLEAN'
-        self.room.save()
+        if self.room.status != RoomStatus.OCCUPIED:
+            self.room.status = RoomStatus.VACANT_CLEAN
+        self.room.save(update_fields=['housekeeping_status', 'status'])
 
     def __str__(self):
         return f"Room {self.room.room_number} - {self.get_task_type_display()} ({self.status})"

@@ -2,6 +2,14 @@ import uuid
 from django.db import models
 
 
+class ImmutableAuditQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError('Audit records are immutable and cannot be updated.')
+
+    def delete(self):
+        raise ValueError('Audit records are permanent and cannot be deleted.')
+
+
 class AuditModule(models.TextChoices):
     SECURITY = 'SECURITY', 'Security & Authentication'
     AUTH = 'AUTH', 'User & Role Management'
@@ -38,6 +46,8 @@ class AuditLog(models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     severity = models.CharField(
         max_length=15, choices=AuditSeverity.choices, default=AuditSeverity.INFO)
+
+    objects = ImmutableAuditQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'Audit Log Entry'

@@ -1,3 +1,64 @@
+import { DailyFlashReportData, Guest, HousekeepingTask, HotelSettings, MenuItem, NightAuditReport, OrderItem, RestaurantOrder, Reservation, Room, StaffRole } from '../types/hotel';
+
+export interface AuthenticatedStaff {
+  id: string;
+  email: string;
+  fullName: string;
+  role: StaffRole;
+}
+
+export interface InventoryIngredient {
+  id: string;
+  sku: string;
+  name: string;
+  unit: 'KG' | 'G' | 'L' | 'ML' | 'EACH';
+  is_active: boolean;
+  quantity_on_hand: string;
+  reorder_level: string;
+}
+
+export interface InventoryRecipeLine {
+  id: number;
+  menu_item: string;
+  menu_item_name: string;
+  ingredient: string;
+  ingredient_name: string;
+  unit: InventoryIngredient['unit'];
+  quantity: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  ingredient: string;
+  ingredient_name: string;
+  unit: InventoryIngredient['unit'];
+  movement_type: string;
+  quantity_delta: string;
+  quantity_after: string;
+  reference: string;
+  notes: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+let basicAuthorizationHeader: string | null = null;
+
+export const clearApiAuthentication = (): void => {
+  basicAuthorizationHeader = null;
+};
+
+export const getAuthenticatedApiHeaders = (): Record<string, string> => (
+  basicAuthorizationHeader ? { Authorization: basicAuthorizationHeader } : {}
+);
+
+const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  if (basicAuthorizationHeader && !headers.has('Authorization')) {
+    headers.set('Authorization', basicAuthorizationHeader);
+  }
+  return fetch(input, { ...init, headers });
+};
+
 /**
  * Arbaminch Tourist Hotel Authoritative Database & API Client
  * Provides 100% resilient persistence for guests, rooms, and reservations.
@@ -60,6 +121,338 @@ export interface SyncResult {
   engineMode: 'django_rest_server' | 'embedded_pms_db';
 }
 
+export interface ReservationTransitionResult {
+  status: string;
+  actual_check_in_time?: string | null;
+  actual_check_out_time?: string | null;
+}
+
+function mapBackendRoom(record: any): Room {
+  const uiRoomTypes: Record<string, Room['type']> = {
+    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
+    'Nechisar Executive Suite': 'Executive Suite',
+    'Garden Family Villa': 'Garden Villa',
+  };
+
+  return {
+    id: record.id,
+    roomNumber: record.room_number,
+    floor: record.floor,
+    type: uiRoomTypes[record.room_type.name] || record.room_type.name as Room['type'],
+    pricePerNight: Number(record.room_type.base_price_etb),
+    capacity: Number(record.room_type.max_adults) + Number(record.room_type.max_children),
+    bedType: record.room_type.bed_type,
+    sizeSqFt: Math.round(Number(record.room_type.size_sqm) * 10.7639),
+    amenities: record.room_type.amenities,
+    status: ({
+      VACANT_CLEAN: 'available',
+      VACANT_DIRTY: 'cleaning',
+      OCCUPIED: 'occupied',
+      MAINTENANCE: 'maintenance',
+    }[record.status as 'VACANT_CLEAN' | 'VACANT_DIRTY' | 'OCCUPIED' | 'MAINTENANCE'] || 'available') as Room['status'],
+    housekeepingStatus: ({
+      CLEAN: 'clean',
+      DIRTY: 'dirty',
+      IN_PROGRESS: 'in_progress',
+      INSPECTION_REQUIRED: 'inspection_needed',
+    }[record.housekeeping_status as 'CLEAN' | 'DIRTY' | 'IN_PROGRESS' | 'INSPECTION_REQUIRED'] || 'clean') as Room['housekeepingStatus'],
+    notes: record.notes,
+  };
+}
+
+function mapBackendReservation(record: any): Reservation {
+  const backendRoomType = record.room_type_display || record.room_type?.name || '';
+  const roomTypes: Record<string, Reservation['roomType']> = {
+    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
+    'Nechisar Executive Suite': 'Executive Suite',
+    'Garden Family Villa': 'Garden Villa',
+  };
+  const statuses: Record<string, Reservation['status']> = {
+    DRAFT: 'confirmed',
+    PAYMENT_PENDING: 'confirmed',
+    CONFIRMED: 'confirmed',
+    CHECKED_IN: 'checked_in',
+    CHECKED_OUT: 'checked_out',
+    CANCELLED: 'cancelled',
+    NO_SHOW: 'cancelled',
+  };
+  const roomRateTotal = Number(record.room_rate_total_etb || 0);
+  const taxTotal = Number(record.vat_etb || 0) + Number(record.service_charge_etb || 0);
+  const grandTotal = Number(record.grand_total_etb || 0);
+  const amountPaid = Number(record.deposit_paid_etb || 0);
+
+  return {
+    id: String(record.id),
+    databaseId: String(record.id),
+    syncedToDatabase: true,
+    confirmationCode: record.confirmation_code,
+    guestId: String(record.guest),
+    guestName: record.guest_name_display || '',
+    guestEmail: record.guest_email_display || '',
+    guestPhone: record.guest_phone_display || '',
+    roomId: String(record.room),
+    roomNumber: record.room_number_display || '',
+    roomType: roomTypes[backendRoomType] || backendRoomType as Reservation['roomType'],
+    checkInDate: String(record.check_in_date).slice(0, 10),
+    checkOutDate: String(record.check_out_date).slice(0, 10),
+    nights: Math.max(1, Math.round((Date.parse(`${record.check_out_date}T00:00:00Z`) - Date.parse(`${record.check_in_date}T00:00:00Z`)) / 86400000)),
+    adults: Number(record.adults || 1),
+    children: Number(record.children || 0),
+    status: statuses[record.status] || 'confirmed',
+    source: String(record.source || 'WALK_IN').toLowerCase() as Reservation['source'],
+    ratePlanName: record.rate_plan_display || '',
+    specialRequests: record.special_requests || '',
+    addOns: { breakfast: false, airportTransfer: false, spaPass: false, lateCheckOut: false },
+    roomRateTotal,
+    taxTotal,
+    addOnsTotal: Math.max(0, grandTotal - roomRateTotal - taxTotal),
+    grandTotal,
+    amountPaid,
+    balanceDue: Math.max(0, grandTotal - amountPaid),
+    folioCharges: [],
+    payments: [],
+    createdAt: String(record.created_at || '').split('T')[0],
+    actualCheckInTime: record.actual_check_in_time || undefined,
+    actualCheckOutTime: record.actual_check_out_time || undefined,
+  };
+}
+
+function mapBackendGuest(record: any): Guest {
+  const vipTiers: Record<string, Guest['vipTier']> = {
+    REGULAR: 'Regular',
+    SILVER: 'Silver',
+    GOLD: 'Gold',
+    PLATINUM: 'Platinum',
+  };
+
+  return {
+    id: String(record.id),
+    fullName: record.full_name,
+    email: record.email || '',
+    phone: record.phone_number || '',
+    idNumber: record.id_number || '',
+    idType: String(record.id_type || 'FAYDA').toLowerCase() as Guest['idType'],
+    nationality: record.nationality || '',
+    vipTier: vipTiers[record.vip_tier] || 'Regular',
+    totalStays: Number(record.total_stays || 0),
+    totalSpent: Number(record.total_spent_etb || 0),
+    specialPreferences: record.preferences || '',
+    createdAt: String(record.created_at || '').split('T')[0],
+  };
+}
+
+function mapBackendHousekeepingTask(record: any): HousekeepingTask {
+  const statuses: Record<string, HousekeepingTask['status']> = {
+    PENDING: 'dirty',
+    IN_PROGRESS: 'in_progress',
+    INSPECTION_REQUIRED: 'inspection_needed',
+    COMPLETED: 'clean',
+    MAINTENANCE_REQUIRED: 'dirty',
+  };
+  const priorities: Record<string, HousekeepingTask['priority']> = {
+    LOW: 'low',
+    NORMAL: 'normal',
+    HIGH: 'high',
+  };
+  const roomTypes: Record<string, HousekeepingTask['roomType']> = {
+    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
+    'Nechisar Executive Suite': 'Executive Suite',
+    'Garden Family Villa': 'Garden Villa',
+  };
+  const roomType = record.room_type || '';
+
+  return {
+    id: String(record.id),
+    roomId: String(record.room),
+    roomNumber: record.room_number,
+    roomType: roomTypes[roomType] || roomType as HousekeepingTask['roomType'],
+    status: statuses[record.status] || 'dirty',
+    priority: priorities[record.priority] || 'normal',
+    assignedTo: record.assigned_to_name || 'Unassigned',
+    requestedAt: record.created_at
+      ? new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '',
+    completedAt: record.completed_at || undefined,
+    notes: record.notes || '',
+  };
+}
+
+function mapBackendProperty(record: any): Partial<HotelSettings> {
+  return {
+    hotelName: record.name,
+    hotelNameAmharic: record.name_amharic,
+    tagline: record.tagline,
+    currency: record.currency,
+    vatRatePercent: Number(record.vat_rate) * 100,
+    serviceChargePercent: Number(record.service_charge_rate) * 100,
+    tinNumber: record.tin_number,
+    telebirrShortCode: record.telebirr_short_code,
+    telebirrMerchantId: record.telebirr_merchant_id,
+    checkInTime: String(record.check_in_time || '').slice(0, 5),
+    checkOutTime: String(record.check_out_time || '').slice(0, 5),
+    phone: record.phone,
+    email: record.email,
+    address: record.address,
+    businessDate: String(record.current_business_date || '').slice(0, 10),
+  };
+}
+
+function mapBackendNightAuditReport(record: any): NightAuditReport {
+  const guestList = record.snapshot_data?.inHouseGuestList;
+  return {
+    id: String(record.id),
+    businessDate: String(record.business_date).slice(0, 10),
+    nextBusinessDate: String(record.next_business_date).slice(0, 10),
+    closedAt: String(record.closed_at || '').replace('T', ' ').slice(0, 19),
+    closedBy: record.closed_by,
+    auditorRole: record.auditor_role as StaffRole,
+    status: record.status === 'REOPENED' ? 'reopened' : 'completed',
+    totalRooms: Number(record.total_rooms || 0),
+    occupiedRooms: Number(record.occupied_rooms || 0),
+    occupancyRate: Number(record.occupancy_rate || 0),
+    adr: Number(record.adr_etb || 0),
+    revpar: Number(record.revpar_etb || 0),
+    roomRevenue: Number(record.room_revenue_etb || 0),
+    fbRevenue: Number(record.fb_revenue_etb || 0),
+    spaRevenue: Number(record.spa_revenue_etb || 0),
+    transportRevenue: Number(record.transport_revenue_etb || 0),
+    miscRevenue: Number(record.misc_revenue_etb || 0),
+    serviceChargeTotal: Number(record.service_charge_etb || 0),
+    vatTotal: Number(record.vat_etb || 0),
+    grossRevenue: Number(record.gross_revenue_etb || 0),
+    settlements: {
+      telebirr: Number(record.telebirr_settled_etb || 0),
+      cash: Number(record.cash_settled_etb || 0),
+      cbeCard: Number(record.cbe_card_settled_etb || 0),
+      bankTransfer: Number(record.bank_transfer_settled_etb || 0),
+    },
+    postedRoomChargesCount: Number(record.posted_room_charges_count || 0),
+    noShowsProcessedCount: Number(record.no_shows_processed_count || 0),
+    auditChecksum: record.audit_checksum || '',
+    notes: record.notes || '',
+    inHouseGuestList: Array.isArray(guestList) ? guestList : [],
+  };
+}
+
+export interface BackendDailyFlashReport {
+  report: DailyFlashReportData;
+  settlements: {
+    telebirr: number;
+    cash: number;
+    cbeCard: number;
+    bankTransfer: number;
+  };
+}
+
+export interface NightAuditExecutionResult {
+  report: NightAuditReport;
+  alreadyClosed: boolean;
+}
+
+function mapBackendRestaurantOrder(record: any): RestaurantOrder {
+  const orderTypes: Record<string, RestaurantOrder['orderType']> = {
+    DINE_IN: 'dine_in',
+    ROOM_SERVICE: 'room_service',
+    TAKEAWAY: 'takeaway',
+    BAR_WALKIN: 'bar_walkin',
+  };
+  const orderStatuses: Record<string, RestaurantOrder['status']> = {
+    OPEN: 'open',
+    SENT_TO_KITCHEN: 'sent_to_kitchen',
+    IN_PREPARATION: 'in_preparation',
+    READY: 'ready',
+    SERVED: 'served',
+    SETTLED: 'settled',
+    POSTED_TO_ROOM: 'posted_to_room',
+    VOIDED: 'voided',
+  };
+  const stations: Record<string, OrderItem['station']> = {
+    HOT_KITCHEN: 'hot_kitchen',
+    COLD_SALAD: 'cold_salad',
+    BAR_BEVERAGE: 'bar_beverage',
+    BAKERY_DESSERT: 'bakery_dessert',
+  };
+  const itemStatuses: Record<string, OrderItem['itemStatus']> = {
+    QUEUED: 'queued',
+    PREPARING: 'preparing',
+    READY: 'ready',
+    SERVED: 'served',
+    CANCELLED: 'cancelled',
+  };
+
+  return {
+    id: String(record.id),
+    orderNumber: record.order_number,
+    kotNumber: record.kot_number,
+    orderType: orderTypes[record.order_type] || 'dine_in',
+    outlet: record.outlet,
+    tableNumber: record.table_number || undefined,
+    roomNumber: record.room_number || undefined,
+    reservationId: record.reservation || undefined,
+    guestName: record.guest_name || undefined,
+    waiterName: record.waiter_name || '',
+    covers: Number(record.covers || 1),
+    items: (record.items || []).map((item: any): OrderItem => ({
+      id: String(item.id),
+      menuItemId: item.menu_item_id || '',
+      name: item.name,
+      nameAmharic: item.name_amharic || undefined,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unit_price),
+      station: stations[item.station] || 'hot_kitchen',
+      notes: item.notes || undefined,
+      itemStatus: itemStatuses[item.status] || 'queued',
+    })),
+    subtotal: Number(record.subtotal),
+    serviceCharge: Number(record.service_charge),
+    vatAmount: Number(record.vat_amount),
+    grandTotal: Number(record.grand_total),
+    status: orderStatuses[record.status] || 'open',
+    paymentMethod: record.payment_method?.toLowerCase() as RestaurantOrder['paymentMethod'],
+    paymentReference: record.payment_reference || undefined,
+    telebirrTxId: record.telebirr_transaction_id || undefined,
+    createdAt: String(record.created_at || '').replace('T', ' ').slice(0, 19),
+    kotSentAt: record.kot_sent_at ? String(record.kot_sent_at).replace('T', ' ').slice(0, 19) : undefined,
+    settledAt: record.settled_at ? String(record.settled_at).replace('T', ' ').slice(0, 19) : undefined,
+    specialInstructions: record.special_instructions || undefined,
+    voidReason: record.void_reason || undefined,
+  };
+}
+
+function mapBackendMenuItem(record: any): MenuItem {
+  const categories: Record<string, MenuItem['category']> = {
+    TRADITIONAL: 'traditional',
+    GRILL_MAINS: 'grill_mains',
+    FASTING_VEGAN: 'fasting_vegan',
+    BEVERAGES: 'beverages',
+    BREAKFAST: 'breakfast',
+    DESSERTS: 'desserts',
+  };
+  const stations: Record<string, MenuItem['station']> = {
+    HOT_KITCHEN: 'hot_kitchen',
+    COLD_SALAD: 'cold_salad',
+    BAR_BEVERAGE: 'bar_beverage',
+    BAKERY_DESSERT: 'bakery_dessert',
+  };
+
+  return {
+    id: record.client_id || record.code,
+    code: record.code,
+    name: record.name,
+    nameAmharic: record.name_amharic || '',
+    description: record.description || '',
+    category: categories[record.category] || 'traditional',
+    price: Number(record.price),
+    station: stations[record.station] || 'hot_kitchen',
+    isFasting: Boolean(record.is_fasting),
+    isSpicy: Boolean(record.is_spicy),
+    isVegetarian: Boolean(record.is_vegetarian),
+    preparationMinutes: Number(record.preparation_minutes || 0),
+    isAvailable: Boolean(record.is_available),
+    imageUrl: record.image_url || undefined,
+  };
+}
+
 const DB_STORAGE_KEYS = {
   GUESTS: 'django_table_apps_guests_guest',
   RESERVATIONS: 'django_table_apps_reservations_reservation',
@@ -82,6 +475,988 @@ function setStoredTable<T>(key: string, data: T[]): void {
 }
 
 export const hotelApi = {
+  async fetchInventoryIngredients(): Promise<InventoryIngredient[]> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/ingredients/`, {
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return Array.isArray(payload) ? payload : payload.results || [];
+  },
+
+  async createInventoryIngredient(data: Pick<InventoryIngredient, 'sku' | 'name' | 'unit'>): Promise<InventoryIngredient> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/ingredients/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(JSON.stringify(payload));
+    return payload;
+  },
+
+  async receiveInventoryStock(ingredientId: string, quantity: string, notes: string): Promise<InventoryMovement> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/movements/receive/${ingredientId}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ quantity, notes }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(JSON.stringify(payload));
+    return payload;
+  },
+
+  async fetchInventoryRecipes(): Promise<InventoryRecipeLine[]> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/recipes/`, {
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return Array.isArray(payload) ? payload : payload.results || [];
+  },
+
+  async createInventoryRecipeLine(data: Pick<InventoryRecipeLine, 'menu_item' | 'ingredient' | 'quantity'>): Promise<InventoryRecipeLine> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/recipes/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(JSON.stringify(payload));
+    return payload;
+  },
+
+  async fetchInventoryMovements(): Promise<InventoryMovement[]> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/inventory/movements/`, {
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return Array.isArray(payload) ? payload : payload.results || [];
+  },
+
+  async fetchRestaurantMenuFromDjango(): Promise<MenuItem[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/menu-items/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendMenuItem);
+          lastError = 'Django returned an invalid menu list.';
+        } else {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading the menu.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load restaurant menu.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createRestaurantMenuItemInDjango(item: Omit<MenuItem, 'id'> & { id: string }): Promise<MenuItem> {
+    const categories: Record<MenuItem['category'], string> = {
+      traditional: 'TRADITIONAL',
+      grill_mains: 'GRILL_MAINS',
+      fasting_vegan: 'FASTING_VEGAN',
+      beverages: 'BEVERAGES',
+      breakfast: 'BREAKFAST',
+      desserts: 'DESSERTS',
+    };
+    const stations: Record<MenuItem['station'], string> = {
+      hot_kitchen: 'HOT_KITCHEN',
+      cold_salad: 'COLD_SALAD',
+      bar_beverage: 'BAR_BEVERAGE',
+      bakery_dessert: 'BAKERY_DESSERT',
+    };
+    const body = {
+      client_id: item.id,
+      code: item.code,
+      name: item.name,
+      name_amharic: item.nameAmharic,
+      description: item.description,
+      category: categories[item.category],
+      price: item.price,
+      station: stations[item.station],
+      is_fasting: item.isFasting,
+      is_spicy: item.isSpicy,
+      is_vegetarian: item.isVegetarian,
+      preparation_minutes: item.preparationMinutes,
+      is_available: item.isAvailable,
+      image_url: item.imageUrl || '',
+    };
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/menu-items/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendMenuItem(payload);
+        lastError = JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create menu item.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async updateRestaurantMenuItemInDjango(menuItemId: string, updates: Partial<MenuItem>): Promise<MenuItem> {
+    const categories: Record<MenuItem['category'], string> = {
+      traditional: 'TRADITIONAL', grill_mains: 'GRILL_MAINS', fasting_vegan: 'FASTING_VEGAN',
+      beverages: 'BEVERAGES', breakfast: 'BREAKFAST', desserts: 'DESSERTS',
+    };
+    const stations: Record<MenuItem['station'], string> = {
+      hot_kitchen: 'HOT_KITCHEN', cold_salad: 'COLD_SALAD',
+      bar_beverage: 'BAR_BEVERAGE', bakery_dessert: 'BAKERY_DESSERT',
+    };
+    const fieldMap: Record<string, string> = {
+      code: 'code', name: 'name', nameAmharic: 'name_amharic', description: 'description',
+      price: 'price', isFasting: 'is_fasting', isSpicy: 'is_spicy',
+      isVegetarian: 'is_vegetarian', preparationMinutes: 'preparation_minutes',
+      isAvailable: 'is_available', imageUrl: 'image_url',
+    };
+    const payload: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (key === 'category') payload.category = categories[value as MenuItem['category']];
+      else if (key === 'station') payload.station = stations[value as MenuItem['station']];
+      else if (fieldMap[key]) payload[fieldMap[key]] = value;
+    }
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/menu-items/${menuItemId}/`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendMenuItem(result);
+        lastError = JSON.stringify(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update menu item.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async loginWithBasicAuth(email: string, password: string): Promise<AuthenticatedStaff> {
+    const authorization = `Basic ${btoa(`${email}:${password}`)}`;
+    let lastError = 'Could not connect to the hotel server.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/auth/me/`, {
+          headers: { Accept: 'application/json', Authorization: authorization },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          lastError = response.status === 401
+            ? 'Email or password is incorrect.'
+            : payload.detail || `Server returned HTTP ${response.status}.`;
+          continue;
+        }
+
+        const roles: Record<string, StaffRole> = {
+          GENERAL_MANAGER: 'General Manager',
+          FRONT_OFFICE_MANAGER: 'Front Office Manager',
+          RECEPTIONIST: 'Receptionist',
+          CASHIER: 'Cashier',
+          HOUSEKEEPING_SUPERVISOR: 'Housekeeping Supervisor',
+          HOUSEKEEPER: 'Housekeeper',
+          FB_MANAGER: 'F&B Manager',
+          WAITER: 'Waiter',
+          EXECUTIVE_CHEF: 'Executive Chef',
+          STOREKEEPER: 'Storekeeper',
+          PURCHASING_OFFICER: 'Purchasing Officer',
+          FINANCE_OFFICER: 'Finance Officer',
+          MAINTENANCE: 'Maintenance Technician',
+          SYSTEM_ADMIN: 'System Administrator',
+        };
+        const staff: AuthenticatedStaff = {
+          id: payload.id,
+          email: payload.email,
+          fullName: payload.full_name,
+          role: roles[payload.role] || 'Receptionist',
+        };
+        basicAuthorizationHeader = authorization;
+        return staff;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async fetchRoomsFromDjango(): Promise<Room[]> {
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/`, {
+          headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+          lastError = `Django returned HTTP ${response.status} while loading rooms.`;
+          continue;
+        }
+
+        const payload = await response.json();
+        const records = Array.isArray(payload) ? payload : payload.results;
+        if (!Array.isArray(records)) {
+          lastError = 'Django returned an invalid room list.';
+          continue;
+        }
+
+        return records.map(mapBackendRoom);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load rooms from Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async fetchAvailableRoomsFromDjango(checkIn: string, checkOut: string): Promise<Room[]> {
+    let lastError = 'Django backend is unavailable.';
+    const query = new URLSearchParams({ check_in: checkIn, check_out: checkOut });
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/availability/?${query}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return (Array.isArray(payload) ? payload : payload.results || []).map(mapBackendRoom);
+        lastError = payload.detail || `Django returned HTTP ${response.status} while checking availability.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to check room availability.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async fetchReservationsFromDjango(): Promise<Reservation[]> {
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendReservation);
+          lastError = 'Django returned an invalid reservation list.';
+        } else {
+          lastError = `Django returned HTTP ${response.status} while loading reservations.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load reservations from Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async fetchGuestsFromDjango(): Promise<Guest[]> {
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/guests/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendGuest);
+          lastError = 'Django returned an invalid guest list.';
+        } else {
+          lastError = `Django returned HTTP ${response.status} while loading guests.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load guests from Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async createGuestInDjango(guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>): Promise<Guest> {
+    const idTypes: Record<string, string> = {
+      fayda: 'FAYDA',
+      kebele: 'KEBELE',
+      passport: 'PASSPORT',
+      drivers_license: 'DRIVERS_LICENSE',
+    };
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/guests/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            full_name: guest.fullName,
+            email: guest.email,
+            phone_number: guest.phone,
+            id_type: idTypes[guest.idType || 'fayda'],
+            id_number: guest.idNumber,
+            nationality: guest.nationality,
+            vip_tier: guest.vipTier.toUpperCase(),
+            preferences: guest.specialPreferences,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendGuest(payload);
+        lastError = JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create guest in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async updateGuestInDjango(guestId: string, updates: Partial<Guest>): Promise<Guest> {
+    const payload: Record<string, unknown> = {};
+    if (updates.fullName !== undefined) payload.full_name = updates.fullName;
+    if (updates.email !== undefined) payload.email = updates.email;
+    if (updates.phone !== undefined) payload.phone_number = updates.phone;
+    if (updates.idNumber !== undefined) payload.id_number = updates.idNumber;
+    if (updates.idType !== undefined) payload.id_type = updates.idType.toUpperCase();
+    if (updates.nationality !== undefined) payload.nationality = updates.nationality;
+    if (updates.vipTier !== undefined) payload.vip_tier = updates.vipTier.toUpperCase();
+    if (updates.specialPreferences !== undefined) payload.preferences = updates.specialPreferences;
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/guests/${guestId}/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendGuest(result);
+        lastError = JSON.stringify(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update guest in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async fetchPropertySettingsFromDjango(): Promise<Partial<HotelSettings>> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/properties/current/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendProperty(payload);
+        lastError = payload.detail || `Django returned HTTP ${response.status} while loading property settings.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load property settings.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchDailyFlashReportFromDjango(date: string): Promise<BackendDailyFlashReport> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(
+          `${baseUrl}/reporting/night-audit/daily-flash/?date=${encodeURIComponent(date)}`,
+          { headers: { Accept: 'application/json' } },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading the daily flash.`;
+          continue;
+        }
+
+        const kpis = payload.kpis || {};
+        const revenue = payload.revenue_breakdown || {};
+        const settlements = payload.settlements || {};
+        const telebirr = Number(settlements.telebirr_etb || 0);
+        const cash = Number(settlements.cash_etb || 0);
+        const cbeCard = Number(settlements.cbe_birr_card_etb || 0);
+        const bankTransfer = Number(settlements.bank_transfer_etb || 0);
+        const totalRooms = Number(kpis.total_rooms || 0);
+        const occupiedRooms = Number(kpis.occupied_rooms || 0);
+
+        return {
+          report: {
+            businessDate: String(payload.business_date || date).slice(0, 10),
+            occupancyRate: Number(kpis.occupancy_rate || 0),
+            totalRooms,
+            occupiedRooms,
+            availableRooms: Math.max(0, totalRooms - occupiedRooms),
+            arrivalsToday: 0,
+            departuresToday: 0,
+            adr: Number(kpis.adr_etb || 0),
+            revpar: Number(kpis.revpar_etb || 0),
+            roomRevenue: Number(revenue.rooms_etb || 0),
+            fbRevenue: Number(revenue.food_and_beverage_etb || 0),
+            spaRevenue: Number(revenue.spa_and_wellness_etb || 0),
+            otherRevenue: Number(revenue.transport_etb || 0) + Number(revenue.miscellaneous_etb || 0),
+            subtotal: Number(revenue.subtotal_etb || 0),
+            serviceCharge: Number(revenue.service_charge_etb || 0),
+            vat15Percent: Number(revenue.vat_15_percent_etb || 0),
+            grossRevenue: Number(revenue.gross_total_etb || 0),
+            telebirrTotal: telebirr,
+            cashTotal: cash,
+            cbeTotal: cbeCard,
+          },
+          settlements: { telebirr, cash, cbeCard, bankTransfer },
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load daily flash from Django.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchNightAuditSessionsFromDjango(): Promise<NightAuditReport[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reporting/night-audit/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendNightAuditReport);
+          lastError = 'Django returned an invalid night-audit session list.';
+        } else {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading night-audit sessions.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load night-audit sessions from Django.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async executeNightAudit(payload: {
+    businessDate: string;
+    closedBy: string;
+    notes: string;
+    processNoShows: boolean;
+  }): Promise<NightAuditExecutionResult> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reporting/night-audit/execute/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            business_date: payload.businessDate,
+            closed_by: payload.closedBy,
+            notes: payload.notes,
+            process_no_shows: payload.processNoShows,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) {
+          if (result.session) {
+            return {
+              report: mapBackendNightAuditReport(result.session),
+              alreadyClosed: Boolean(result.already_closed),
+            };
+          }
+          lastError = 'Django returned a night-audit response without a saved session.';
+        } else {
+          lastError = result.detail || JSON.stringify(result);
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to execute night audit in Django.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async updatePropertySettingsInDjango(updates: Partial<HotelSettings>): Promise<Partial<HotelSettings>> {
+    const payload: Record<string, unknown> = {};
+    if (updates.hotelName !== undefined) payload.name = updates.hotelName;
+    if (updates.hotelNameAmharic !== undefined) payload.name_amharic = updates.hotelNameAmharic;
+    if (updates.tagline !== undefined) payload.tagline = updates.tagline;
+    if (updates.address !== undefined) payload.address = updates.address;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.email !== undefined) payload.email = updates.email;
+    if (updates.tinNumber !== undefined) payload.tin_number = updates.tinNumber;
+    if (updates.currency !== undefined) payload.currency = updates.currency;
+    if (updates.vatRatePercent !== undefined) payload.vat_rate = (updates.vatRatePercent / 100).toFixed(4);
+    if (updates.serviceChargePercent !== undefined) payload.service_charge_rate = (updates.serviceChargePercent / 100).toFixed(4);
+    if (updates.telebirrShortCode !== undefined) payload.telebirr_short_code = updates.telebirrShortCode;
+    if (updates.telebirrMerchantId !== undefined) payload.telebirr_merchant_id = updates.telebirrMerchantId;
+    if (updates.checkInTime !== undefined) payload.check_in_time = updates.checkInTime.length === 5 ? `${updates.checkInTime}:00` : updates.checkInTime;
+    if (updates.checkOutTime !== undefined) payload.check_out_time = updates.checkOutTime.length === 5 ? `${updates.checkOutTime}:00` : updates.checkOutTime;
+    if (updates.businessDate !== undefined) payload.current_business_date = updates.businessDate;
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/properties/current/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendProperty(result);
+        lastError = JSON.stringify(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to save property settings.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createRestaurantOrderInDjango(data: {
+    orderType: RestaurantOrder['orderType'];
+    outlet: string;
+    tableNumber?: string;
+    roomNumber?: string;
+    reservationId?: string;
+    guestName?: string;
+    covers: number;
+    items: OrderItem[];
+    specialInstructions?: string;
+    sendToKitchen: boolean;
+  }): Promise<RestaurantOrder> {
+    const orderTypes: Record<RestaurantOrder['orderType'], string> = {
+      dine_in: 'DINE_IN',
+      room_service: 'ROOM_SERVICE',
+      takeaway: 'TAKEAWAY',
+      bar_walkin: 'BAR_WALKIN',
+    };
+    const stations: Record<OrderItem['station'], string> = {
+      hot_kitchen: 'HOT_KITCHEN',
+      cold_salad: 'COLD_SALAD',
+      bar_beverage: 'BAR_BEVERAGE',
+      bakery_dessert: 'BAKERY_DESSERT',
+    };
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/orders/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            order_type: orderTypes[data.orderType],
+            outlet: data.outlet,
+            table_number: data.tableNumber || '',
+            room_number: data.roomNumber || '',
+            reservation_id: data.reservationId || null,
+            guest_name: data.guestName || '',
+            covers: data.covers,
+            special_instructions: data.specialInstructions || '',
+            send_to_kitchen: data.sendToKitchen,
+            items: data.items.map((item) => ({
+              menu_item_id: item.menuItemId,
+              name: item.name,
+              name_amharic: item.nameAmharic || '',
+              quantity: item.quantity,
+              unit_price: item.unitPrice,
+              station: stations[item.station],
+              notes: item.notes || '',
+            })),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRestaurantOrder(payload);
+        lastError = JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create restaurant order.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchRestaurantOrdersFromDjango(): Promise<RestaurantOrder[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/orders/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendRestaurantOrder);
+          lastError = 'Django returned an invalid restaurant order list.';
+        } else {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading orders.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load restaurant orders.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async updateRestaurantOrderItemStatusInDjango(
+    orderId: string,
+    itemId: string,
+    itemStatus: OrderItem['itemStatus']
+  ): Promise<RestaurantOrder> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/orders/${orderId}/item-status/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ item_id: itemId, status: itemStatus.toUpperCase() }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRestaurantOrder(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update kitchen item.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async settleRestaurantOrderInDjango(
+    orderId: string,
+    method: RestaurantOrder['paymentMethod'],
+    reference?: string,
+    telebirrTxId?: string
+  ): Promise<RestaurantOrder> {
+    const methods: Record<string, string> = {
+      telebirr: 'TELEBIRR', cbe_birr: 'CBE_BIRR', cash: 'CASH',
+      credit_card: 'CARD', bank_transfer: 'BANK_TRANSFER', wire: 'BANK_TRANSFER',
+      room_charge: 'ROOM_CHARGE', apple_pay: 'CARD',
+    };
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/orders/${orderId}/settle/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            payment_method: methods[String(method)] || 'CASH',
+            payment_reference: reference || '',
+            telebirr_transaction_id: telebirrTxId || '',
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRestaurantOrder(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to settle restaurant order.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async voidRestaurantOrderInDjango(orderId: string, reason: string): Promise<RestaurantOrder> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/orders/${orderId}/void/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ reason }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRestaurantOrder(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to void restaurant order.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchHousekeepingTasksFromDjango(): Promise<HousekeepingTask[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/housekeeping/tasks/`, {
+          headers: { Accept: 'application/json', ...getAuthenticatedApiHeaders() },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendHousekeepingTask);
+          lastError = 'Django returned an invalid housekeeping task list.';
+        } else {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading housekeeping tasks.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load housekeeping tasks.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createHousekeepingTaskInDjango(task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>): Promise<HousekeepingTask> {
+    const priorities: Record<HousekeepingTask['priority'], string> = {
+      low: 'LOW',
+      normal: 'NORMAL',
+      high: 'HIGH',
+      urgent: 'HIGH',
+    };
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/housekeeping/tasks/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...getAuthenticatedApiHeaders(),
+          },
+          body: JSON.stringify({
+            room: task.roomId,
+            task_type: 'CHECKOUT_CLEAN',
+            priority: priorities[task.priority],
+            notes: task.notes || '',
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendHousekeepingTask(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create housekeeping task.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async transitionHousekeepingTaskInDjango(
+    taskId: string,
+    status: HousekeepingTask['status']
+  ): Promise<HousekeepingTask> {
+    const actions: Record<HousekeepingTask['status'], string> = {
+      dirty: 'reopen',
+      in_progress: 'start',
+      inspection_needed: 'complete',
+      clean: 'inspect',
+    };
+    let lastError = 'Django backend is unavailable.';
+
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/housekeeping/tasks/${taskId}/${actions[status]}/`, {
+          method: 'POST',
+          headers: { Accept: 'application/json', ...getAuthenticatedApiHeaders() },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendHousekeepingTask(payload);
+        lastError = payload.detail || payload.error || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update housekeeping task.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async updateRoomInDjango(roomId: string, updates: Partial<Room>): Promise<Room> {
+    const payload: Record<string, unknown> = {};
+    if (updates.notes !== undefined) payload.notes = updates.notes;
+
+    if (updates.status !== undefined) {
+      const statusMap: Partial<Record<Room['status'], string>> = {
+        available: 'VACANT_CLEAN',
+        occupied: 'OCCUPIED',
+        cleaning: 'VACANT_DIRTY',
+        maintenance: 'MAINTENANCE',
+      };
+      const backendStatus = statusMap[updates.status];
+      if (!backendStatus) {
+        throw new Error('Reserved status comes from an active reservation and cannot be set manually.');
+      }
+      payload.status = backendStatus;
+    }
+
+    if (updates.housekeepingStatus !== undefined) {
+      const housekeepingStatusMap: Record<Room['housekeepingStatus'], string> = {
+        clean: 'CLEAN',
+        dirty: 'DIRTY',
+        in_progress: 'IN_PROGRESS',
+        inspection_needed: 'INSPECTION_REQUIRED',
+      };
+      payload.housekeeping_status = housekeepingStatusMap[updates.housekeepingStatus];
+    }
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/${roomId}/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (response.ok) return mapBackendRoom(await response.json());
+        lastError = `Django returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update room in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async createRoomInDjango(roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>): Promise<Room> {
+    const backendTypeNames: Partial<Record<Room['type'], string>> = {
+      'Standard King': 'Standard King',
+      'Deluxe Ocean View': 'Deluxe Lake Chamo View',
+      'Executive Suite': 'Nechisar Executive Suite',
+      'Garden Villa': 'Garden Family Villa',
+    };
+    const backendTypeName = backendTypeNames[roomData.type];
+    if (!backendTypeName) {
+      throw new Error(`Room type "${roomData.type}" is not configured in Django.`);
+    }
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const typesResponse = await apiFetch(`${baseUrl}/rooms/room-types/`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!typesResponse.ok) {
+          lastError = `Django returned HTTP ${typesResponse.status} while loading room types.`;
+          continue;
+        }
+
+        const typesPayload = await typesResponse.json();
+        const roomTypes = Array.isArray(typesPayload) ? typesPayload : typesPayload.results;
+        const roomType = roomTypes?.find((candidate: any) => candidate.name === backendTypeName);
+        if (!roomType) {
+          lastError = `Room type "${backendTypeName}" does not exist in Django. Add it in the admin first.`;
+          continue;
+        }
+
+        const response = await apiFetch(`${baseUrl}/rooms/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            room_number: roomData.roomNumber,
+            room_type_id: roomType.id,
+            floor: roomData.floor,
+            status: 'VACANT_CLEAN',
+            housekeeping_status: 'CLEAN',
+            notes: roomData.notes || '',
+          }),
+        });
+
+        if (response.ok) return mapBackendRoom(await response.json());
+        lastError = `Django returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create room in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async transitionReservationInDjango(
+    confirmationCode: string,
+    transition: 'check-in' | 'check-out' | 'cancel' | 'no-show'
+  ): Promise<ReservationTransitionResult> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/${transition}/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({ confirmation_code: confirmationCode }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return result as ReservationTransitionResult;
+        lastError = result.error || `Django returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to update reservation in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
+  async createReservationInDjango(payload: ApiReservationPayload): Promise<any> {
+    const normalizedPayload = {
+      ...payload,
+      source: (payload.source || 'WALK_IN').toUpperCase().replace('-', '_').replace(' ', '_'),
+      status: 'CONFIRMED',
+      room_number: String(payload.room_number).replace('room-', '').trim(),
+      room_rate_total_etb: Math.round(Number(payload.room_rate_total_etb) * 100) / 100,
+      vat_etb: Math.round(Number(payload.vat_etb) * 100) / 100,
+      service_charge_etb: Math.round(Number(payload.service_charge_etb) * 100) / 100,
+      grand_total_etb: Math.round(Number(payload.grand_total_etb) * 100) / 100,
+      deposit_paid_etb: Math.round(Number(payload.deposit_paid_etb) * 100) / 100,
+      check_in_date: String(payload.check_in_date).split('T')[0],
+      check_out_date: String(payload.check_out_date).split('T')[0],
+    };
+
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(normalizedPayload),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return result;
+        lastError = typeof result === 'object' ? JSON.stringify(result) : String(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to create reservation in Django.';
+      }
+    }
+
+    throw new Error(lastError);
+  },
+
   /**
    * Check whether Django backend is active and reachable
    */
@@ -95,7 +1470,7 @@ export const hotelApi = {
         const timeoutId = setTimeout(() => controller.abort(), 1800);
 
         // Try our dedicated health check endpoint first
-        let res = await fetch(`${baseUrl}/reservations/health/`, {
+        let res = await apiFetch(`${baseUrl}/reservations/health/`, {
           method: 'GET',
           headers: { Accept: 'application/json' },
           signal: controller.signal,
@@ -103,7 +1478,7 @@ export const hotelApi = {
 
         // Fallback to rooms endpoint
         if (!res || !res.ok) {
-          res = await fetch(`${baseUrl}/rooms/`, {
+          res = await apiFetch(`${baseUrl}/rooms/`, {
             method: 'GET',
             headers: { Accept: 'application/json' },
             signal: controller.signal,
@@ -168,7 +1543,7 @@ export const hotelApi = {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-        const response = await fetch(`${baseUrl}/reservations/`, {
+        const response = await apiFetch(`${baseUrl}/reservations/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -245,7 +1620,7 @@ export const hotelApi = {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        const response = await fetch(`${baseUrl}/reservations/bulk-sync/`, {
+        const response = await apiFetch(`${baseUrl}/reservations/bulk-sync/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -420,79 +1795,4 @@ export const hotelApi = {
     return reservationRecord;
   },
 
-  /**
-   * Fetch all reservations from stored tables
-   */
-  async fetchReservationsFromDjango(): Promise<any[]> {
-    return getStoredTable<any>(DB_STORAGE_KEYS.RESERVATIONS, []);
-  },
-
-  /**
-   * Fetch all guests from stored tables
-   */
-  async fetchGuestsFromDjango(): Promise<any[]> {
-    return getStoredTable<any>(DB_STORAGE_KEYS.GUESTS, []);
-  },
-
-  /**
-   * Sync Night Audit Session to Django REST backend
-   */
-  async syncNightAuditToDjango(auditPayload: any): Promise<SyncResult> {
-    const candidateUrls = getCandidateUrls();
-    let lastNetworkErr = '';
-
-    for (const baseUrl of candidateUrls) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-        const response = await fetch(`${baseUrl}/reporting/night-audit/execute/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            business_date: auditPayload.businessDate,
-            next_business_date: auditPayload.nextBusinessDate,
-            closed_by: auditPayload.closedBy,
-            auditor_role: auditPayload.auditorRole,
-            notes: auditPayload.notes,
-            snapshot_data: auditPayload,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (response.ok || response.status === 201 || response.status === 200) {
-          const data = await response.json();
-          return {
-            success: true,
-            syncedToDjango: true,
-            data,
-            endpoint: baseUrl,
-            engineMode: 'django_rest_server',
-          };
-        }
-
-        const errText = await response.text();
-        lastNetworkErr = `Django ${baseUrl} (HTTP ${response.status}): ${errText.slice(0, 200)}`;
-      } catch (err: any) {
-        lastNetworkErr = err?.message || 'Network unreachable';
-      }
-    }
-
-    // Persist in local storage table
-    const storedAudits = getStoredTable<any>('django_table_apps_reporting_nightauditsession', []);
-    setStoredTable('django_table_apps_reporting_nightauditsession', [auditPayload, ...storedAudits]);
-
-    return {
-      success: false,
-      syncedToDjango: false,
-      data: auditPayload,
-      endpoint: candidateUrls[0],
-      engineMode: 'embedded_pms_db',
-      error: lastNetworkErr,
-    };
-  },
 };

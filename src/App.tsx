@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { HotelProvider, useHotel } from './context/HotelContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar, ActiveTab } from './components/Sidebar';
@@ -8,6 +8,7 @@ import { RoomsTab } from './components/rooms/RoomsTab';
 import { ReservationsTab } from './components/reservations/ReservationsTab';
 import { HousekeepingTab } from './components/housekeeping/HousekeepingTab';
 import { POSTab } from './components/pos/POSTab';
+import { InventoryTab } from './components/inventory/InventoryTab';
 import { GuestsTab } from './components/guests/GuestsTab';
 import { BillingTab } from './components/billing/BillingTab';
 import { NightAuditTab } from './components/nightaudit/NightAuditTab';
@@ -18,9 +19,16 @@ import { NewReservationModal } from './components/reservations/NewReservationMod
 import { ReservationDetailsModal } from './components/reservations/ReservationDetailsModal';
 import { FolioInvoiceModal } from './components/billing/FolioInvoiceModal';
 import { Reservation, Room, Guest } from './types/hotel';
+import { AuthenticatedStaff, clearApiAuthentication, hotelApi } from './api/hotelApi';
+import { LoginScreen } from './components/auth/LoginScreen';
 
-const HotelApp: React.FC = () => {
+const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
+  const { setCurrentRole } = useHotel();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+
+  useEffect(() => {
+    setCurrentRole(staff.role);
+  }, [setCurrentRole, staff.role]);
 
   // Modals state
   const [isNewReservationOpen, setIsNewReservationOpen] = useState(false);
@@ -47,6 +55,8 @@ const HotelApp: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
       {/* Top Navigation */}
       <Navbar
+        authenticatedStaff={staff}
+        onLogout={onLogout}
         onOpenNewReservation={() => handleOpenNewReservation(null)}
         onOpenQuickCheckIn={() => {
           setActiveTab('reservations');
@@ -89,6 +99,8 @@ const HotelApp: React.FC = () => {
             {activeTab === 'housekeeping' && <HousekeepingTab />}
 
             {activeTab === 'pos' && <POSTab />}
+
+            {activeTab === 'inventory' && <InventoryTab />}
 
             {activeTab === 'guests' && (
               <GuestsTab
@@ -161,9 +173,35 @@ const HotelApp: React.FC = () => {
 };
 
 export function App() {
+  const [staff, setStaff] = useState<AuthenticatedStaff | null>(null);
+  const [loginError, setLoginError] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
+  const handleLogin = async (email: string, password: string) => {
+    setIsSigningIn(true);
+    setLoginError('');
+    try {
+      const authenticatedStaff = await hotelApi.loginWithBasicAuth(email, password);
+      setStaff(authenticatedStaff);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Could not sign in.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearApiAuthentication();
+    setStaff(null);
+  };
+
+  if (!staff) {
+    return <LoginScreen onLogin={handleLogin} isSubmitting={isSigningIn} error={loginError} />;
+  }
+
   return (
     <HotelProvider>
-      <HotelApp />
+      <HotelApp staff={staff} onLogout={handleLogout} />
     </HotelProvider>
   );
 }

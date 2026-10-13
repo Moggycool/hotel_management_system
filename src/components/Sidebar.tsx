@@ -16,6 +16,7 @@ import {
   UtensilsCrossed,
   Database,
   Moon,
+  PackageCheck,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 
@@ -26,6 +27,7 @@ export type ActiveTab =
   | 'reservations'
   | 'housekeeping'
   | 'pos'
+  | 'inventory'
   | 'guests'
   | 'billing'
   | 'night_audit'
@@ -68,6 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       badge: metrics.pendingKitchenOrdersCount > 0 ? metrics.pendingKitchenOrdersCount : undefined,
       badgeColor: 'bg-orange-100 text-orange-800',
     },
+    { id: 'inventory', label: 'Inventory & Recipes', icon: PackageCheck },
     {
       id: 'housekeeping',
       label: 'Housekeeping',

@@ -19,7 +19,6 @@ import {
   Filter,
   ArrowRight,
   Server,
-  RefreshCw,
   FileCheck2,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
@@ -30,7 +29,6 @@ import { CashierShiftModal } from './CashierShiftModal';
 import { DailyFlashReportView } from './DailyFlashReportView';
 import { InHousePoliceManifestView } from './InHousePoliceManifestView';
 import { TaxComplianceReportView } from './TaxComplianceReportView';
-import { hotelApi } from '../../api/hotelApi';
 
 interface NightAuditTabProps {
   onNavigateTab?: (tab: any) => void;
@@ -73,8 +71,6 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
 
   // Governance Audit Log Filter
   const [logFilterModule, setLogFilterModule] = useState<string>('ALL');
-  const [isSyncingDjango, setIsSyncingDjango] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const businessDate = settings.businessDate || new Date().toISOString().split('T')[0];
 
@@ -87,28 +83,6 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
   ).length;
   const openShifts = cashierShifts.filter((s) => s.status === 'open');
   const inHouseCount = reservations.filter((r) => r.status === 'checked_in').length;
-
-  const handleManualSyncDjango = async () => {
-    setIsSyncingDjango(true);
-    setSyncFeedback(null);
-    try {
-      if (nightAuditReports.length > 0) {
-        const latest = nightAuditReports[0];
-        const res = await hotelApi.syncNightAuditToDjango(latest);
-        if (res.syncedToDjango) {
-          setSyncFeedback(`✅ Successfully synced night audit session to Django backend (${res.endpoint})!`);
-        } else {
-          setSyncFeedback(`ℹ️ Django backend offline or blocked. Session committed to local authoritative database.`);
-        }
-      } else {
-        setSyncFeedback('No night audit reports available to sync.');
-      }
-    } catch (err: any) {
-      setSyncFeedback(`Sync error: ${err?.message || 'Network unreachable'}`);
-    } finally {
-      setIsSyncingDjango(false);
-    }
-  };
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
@@ -655,35 +629,17 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
               </div>
             </div>
 
-            {/* Django REST Reporting Synchronization Card */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <Server className="w-4 h-4 text-purple-600" />
-                  Django Backend Synchronization
+                  <Server className="w-4 h-4 text-emerald-600" />
+                  Persistent Night Audit Records
                 </h4>
-                <span className="text-[11px] font-mono text-slate-500">Port 8000</span>
+                <span className="text-[11px] font-semibold text-emerald-700">Server managed</span>
               </div>
               <p className="text-xs text-slate-600">
-                Synchronize closed night audit session summaries directly with Django endpoint <code className="text-indigo-600 bg-slate-100 px-1 py-0.5 rounded">/api/v1/reporting/night-audit/execute/</code>.
+                Audit closures and report history are read from the authenticated hotel server. Manual synchronization of local summaries is disabled to prevent creating duplicate or fabricated closures.
               </p>
-
-              {syncFeedback && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-medium text-slate-800">
-                  {syncFeedback}
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={handleManualSyncDjango}
-                  disabled={isSyncingDjango}
-                  className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDjango ? 'animate-spin' : ''}`} />
-                  Sync Latest Night Audit Session
-                </button>
-              </div>
             </div>
           </div>
 

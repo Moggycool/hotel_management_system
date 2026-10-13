@@ -8,25 +8,25 @@ import {
   CalendarCheck,
   ShieldCheck,
   UserCheck,
+  LogOut,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
-import { StaffRole } from '../types/hotel';
+import { AuthenticatedStaff } from '../api/hotelApi';
 
 interface NavbarProps {
+  authenticatedStaff: AuthenticatedStaff;
+  onLogout: () => void;
   onOpenNewReservation: () => void;
   onOpenQuickCheckIn: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenNewReservation, onOpenQuickCheckIn }) => {
+export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn }) => {
   const {
     settings,
     searchQuery,
     setSearchQuery,
     metrics,
     resetToDemoData,
-    currentRole,
-    setCurrentRole,
-    addAuditLog,
   } = useHotel();
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -41,32 +41,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenNewReservation, onOpenQuic
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const roles: StaffRole[] = [
-    'General Manager',
-    'Front Office Manager',
-    'Receptionist',
-    'Cashier',
-    'Housekeeping Supervisor',
-    'F&B Manager',
-    'Executive Chef',
-    'Storekeeper',
-    'Finance Officer',
-    'System Administrator',
-  ];
-
-  const handleRoleChange = (newRole: StaffRole) => {
-    setCurrentRole(newRole);
-    addAuditLog({
-      actorName: 'Current User',
-      actorRole: newRole,
-      action: 'USER_ROLE_SWITCH',
-      module: 'AUTH',
-      details: `Switched operational role to ${newRole}`,
-      severity: 'info',
-      ipAddress: '192.168.1.15',
-    });
-  };
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
@@ -118,22 +92,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenNewReservation, onOpenQuic
 
         {/* Status / Quick Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* Milestone 1 Interactive Role Switcher */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/80 border border-indigo-200 text-xs">
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/80 border border-indigo-200 text-xs">
             <ShieldCheck className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
-            <span className="text-slate-500 hidden xl:inline">Role:</span>
-            <select
-              value={currentRole}
-              onChange={(e) => handleRoleChange(e.target.value as StaffRole)}
-              className="font-bold text-indigo-900 bg-transparent border-none text-xs focus:outline-none cursor-pointer"
-              title="Switch RBAC Security Role"
-            >
-              {roles.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+            <span className="max-w-36 truncate font-bold text-indigo-900" title={`${authenticatedStaff.fullName} · ${authenticatedStaff.role}`}>
+              {authenticatedStaff.role}
+            </span>
           </div>
 
           {/* Time & Shift Pill */}
@@ -162,6 +125,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenNewReservation, onOpenQuic
             <PlusCircle className="w-4 h-4" />
             <span className="hidden sm:inline">Book Reservation</span>
             <span className="sm:hidden">Book</span>
+          </button>
+
+          <button
+            onClick={onLogout}
+            title={`Sign out ${authenticatedStaff.email}`}
+            aria-label="Sign out"
+            className="p-2 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
           </button>
 
           {/* Reset Demo Data Button */}

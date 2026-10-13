@@ -26,23 +26,34 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
   onClose,
   onBookRoom,
 }) => {
-  const { updateRoomStatus, updateRoom, assignHousekeeper, reservations } = useHotel();
+  const { saveRoom, reservations } = useHotel();
   const [selectedStatus, setSelectedStatus] = useState<RoomStatus>(room.status);
   const [selectedHousekeeping, setSelectedHousekeeping] = useState<HousekeepingStatus>(
     room.housekeepingStatus
   );
-  const [housekeeper, setHousekeeper] = useState<string>(room.assignedHousekeeper || 'Unassigned');
   const [notes, setNotes] = useState<string>(room.notes || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const currentRes = reservations.find(
     (r) => r.id === room.currentReservationId || (r.roomId === room.id && r.status === 'checked_in')
   );
 
-  const handleSave = () => {
-    updateRoomStatus(room.id, selectedStatus, selectedHousekeeping);
-    assignHousekeeper(room.id, housekeeper);
-    updateRoom(room.id, { notes });
-    onClose();
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await saveRoom(room.id, {
+        status: selectedStatus,
+        housekeepingStatus: selectedHousekeeping,
+        notes,
+      });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save room changes.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getStatusBadge = (status: RoomStatus) => {
@@ -152,7 +163,7 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
                 Room Occupancy Status
               </label>
               <div className="grid grid-cols-3 gap-2">
-                {(['available', 'occupied', 'reserved', 'cleaning', 'maintenance'] as RoomStatus[]).map((st) => (
+                {(['available', 'occupied', 'cleaning', 'maintenance'] as RoomStatus[]).map((st) => (
                   <button
                     key={st}
                     type="button"
@@ -198,24 +209,7 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">
-                  Assigned Staff
-                </label>
-                <select
-                  value={housekeeper}
-                  onChange={(e) => setHousekeeper(e.target.value)}
-                  className="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                >
-                  <option value="Unassigned">Unassigned</option>
-                  <option value="Elena Rodriguez">Elena Rodriguez</option>
-                  <option value="Carlos Diaz">Carlos Diaz</option>
-                  <option value="Maria Santos">Maria Santos</option>
-                  <option value="David Kim">David Kim</option>
-                </select>
-              </div>
-
+            <div>
               <div>
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">
                   Staff Notes / Instructions
@@ -249,17 +243,20 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
           )}
 
           <div className="flex items-center gap-2">
+            {saveError && <span role="alert" className="max-w-52 text-xs text-rose-700">{saveError}</span>}
             <button
               onClick={onClose}
+              disabled={isSaving}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              disabled={isSaving}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
             >
-              Save Updates
+              {isSaving ? 'Saving...' : 'Save Updates'}
             </button>
           </div>
         </div>

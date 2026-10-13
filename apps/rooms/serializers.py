@@ -17,6 +17,11 @@ class RatePlanSerializer(serializers.ModelSerializer):
 
 class RoomSerializer(serializers.ModelSerializer):
     room_type = RoomTypeSerializer(read_only=True)
+    room_type_id = serializers.PrimaryKeyRelatedField(
+        source='room_type',
+        queryset=RoomType.objects.all(),
+        write_only=True,
+    )
 
     class Meta:
         model = Room

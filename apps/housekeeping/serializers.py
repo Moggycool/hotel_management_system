@@ -8,9 +8,9 @@ class HousekeepingTaskSerializer(serializers.ModelSerializer):
     room_type = serializers.CharField(
         source='room.room_type.name', read_only=True)
     assigned_to_name = serializers.CharField(
-        source='assigned_to.get_full_name', read_only=True)
+        source='assigned_to.full_name', read_only=True)
     inspected_by_name = serializers.CharField(
-        source='inspected_by.get_full_name', read_only=True)
+        source='inspected_by.full_name', read_only=True)
 
     class Meta:
         model = HousekeepingTask

@@ -80,7 +80,7 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   // Active modal targets
   const [orderForRoomCharge, setOrderForRoomCharge] = useState<RestaurantOrder | null>(null);
   const [orderForDirectSettle, setOrderForDirectSettle] = useState<RestaurantOrder | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
 
   // In-House reservations eligible for room delivery
   const inHouseReservations = useMemo(
@@ -189,10 +189,11 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       : 'Addis Dining Room';
 
   // Action: Send to Kitchen (KOT)
-  const handleSendToKitchen = () => {
+  const handleSendToKitchen = async () => {
     if (cart.length === 0) return;
 
-    const newOrder = createOrder({
+    try {
+      const newOrder = await createOrder({
       orderType,
       outlet: outletName,
       tableId: orderType === 'dine_in' ? selectedTable?.id : undefined,
@@ -207,23 +208,29 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       specialInstructions: specialInstructions.trim() || undefined,
       waiterName,
       sendToKitchenImmediately: true,
-    });
+      });
 
-    setCart([]);
-    setSpecialInstructions('');
-    setFeedbackMessage({
-      type: 'success',
-      text: `Order ${newOrder.orderNumber} sent to kitchen with KOT #${newOrder.kotNumber}!`,
-    });
-    setTimeout(() => setFeedbackMessage(null), 5000);
+      setCart([]);
+      setSpecialInstructions('');
+      setFeedbackMessage({
+        type: 'success',
+        text: `Order ${newOrder.orderNumber} sent to kitchen with KOT #${newOrder.kotNumber}!`,
+      });
+      setTimeout(() => setFeedbackMessage(null), 5000);
+    } catch (error) {
+      setFeedbackMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not create the order.',
+      });
+    }
   };
 
   // Action: Charge to Room Folio
-  const handleInitiateRoomCharge = () => {
+  const handleInitiateRoomCharge = async () => {
     if (cart.length === 0) return;
 
-    // First create the order
-    const newOrder = createOrder({
+    try {
+      const newOrder = await createOrder({
       orderType,
       outlet: outletName,
       tableId: orderType === 'dine_in' ? selectedTable?.id : undefined,
@@ -238,18 +245,25 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       specialInstructions: specialInstructions.trim() || undefined,
       waiterName,
       sendToKitchenImmediately: true,
-    });
+      });
 
-    setCart([]);
-    setSpecialInstructions('');
-    setOrderForRoomCharge(newOrder);
+      setCart([]);
+      setSpecialInstructions('');
+      setOrderForRoomCharge(newOrder);
+    } catch (error) {
+      setFeedbackMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not create the order.',
+      });
+    }
   };
 
   // Action: Direct Settle
-  const handleInitiateDirectSettle = () => {
+  const handleInitiateDirectSettle = async () => {
     if (cart.length === 0) return;
 
-    const newOrder = createOrder({
+    try {
+      const newOrder = await createOrder({
       orderType,
       outlet: outletName,
       tableId: orderType === 'dine_in' ? selectedTable?.id : undefined,
@@ -264,11 +278,17 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       specialInstructions: specialInstructions.trim() || undefined,
       waiterName,
       sendToKitchenImmediately: false,
-    });
+      });
 
-    setCart([]);
-    setSpecialInstructions('');
-    setOrderForDirectSettle(newOrder);
+      setCart([]);
+      setSpecialInstructions('');
+      setOrderForDirectSettle(newOrder);
+    } catch (error) {
+      setFeedbackMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Could not create the order.',
+      });
+    }
   };
 
   return (
@@ -277,12 +297,14 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       <div className="lg:col-span-7 xl:col-span-8 space-y-4">
         {/* Banner Alert if any feedback */}
         {feedbackMessage && (
-          <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center justify-between text-sm shadow-xs animate-in fade-in">
+          <div className={`p-4 rounded-2xl flex items-center justify-between text-sm shadow-xs animate-in fade-in ${feedbackMessage.type === 'error' ? 'bg-rose-50 border border-rose-200 text-rose-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>
             <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              {feedbackMessage.type === 'error'
+                ? <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                : <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />}
               <span>{feedbackMessage.text}</span>
             </div>
-            {onNavigateToKDS && (
+            {feedbackMessage.type !== 'error' && onNavigateToKDS && (
               <button
                 onClick={onNavigateToKDS}
                 className="text-xs font-semibold underline text-emerald-900 hover:text-emerald-700"

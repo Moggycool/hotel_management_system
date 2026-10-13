@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Sparkles,
   Wrench,
@@ -29,8 +29,9 @@ export const HousekeepingTab: React.FC = () => {
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
   const [taskRoomId, setTaskRoomId] = useState(rooms[0]?.id || '');
   const [taskPriority, setTaskPriority] = useState<HousekeepingTask['priority']>('normal');
-  const [taskAssignee, setTaskAssignee] = useState('Maria Santos');
   const [taskNotes, setTaskNotes] = useState('');
+  const [isSavingTask, setIsSavingTask] = useState(false);
+  const [taskSaveError, setTaskSaveError] = useState('');
 
   const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [maintRoomId, setMaintRoomId] = useState(rooms[0]?.id || '');
@@ -39,7 +40,11 @@ export const HousekeepingTab: React.FC = () => {
   const [maintPriority, setMaintPriority] = useState<MaintenanceTicket['priority']>('medium');
   const [maintNotes, setMaintNotes] = useState('');
 
-  const staffList = ['Maria Santos', 'Elena Rodriguez', 'Carlos Diaz', 'David Kim', 'Unassigned'];
+  useEffect(() => {
+    if (!rooms.some((room) => room.id === taskRoomId)) {
+      setTaskRoomId(rooms[0]?.id || '');
+    }
+  }, [rooms, taskRoomId]);
 
   const columns: { id: HousekeepingStatus; title: string; color: string; bg: string }[] = [
     { id: 'dirty', title: 'Needs Cleaning', color: 'text-rose-700', bg: 'bg-rose-50 border-rose-200' },
@@ -48,22 +53,28 @@ export const HousekeepingTab: React.FC = () => {
     { id: 'clean', title: 'Clean & Ready', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
   ];
 
-  const handleCreateTask = (e: React.FormEvent) => {
+  const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetRoom = rooms.find((r) => r.id === taskRoomId);
     if (!targetRoom) return;
 
-    createHousekeepingTask({
+    setIsSavingTask(true);
+    setTaskSaveError('');
+    const created = await createHousekeepingTask({
       roomId: targetRoom.id,
       roomNumber: targetRoom.roomNumber,
       roomType: targetRoom.type,
       status: 'dirty',
       priority: taskPriority,
-      assignedTo: taskAssignee,
       notes: taskNotes,
     });
-    setTaskNotes('');
-    setIsNewTaskOpen(false);
+    if (created) {
+      setTaskNotes('');
+      setIsNewTaskOpen(false);
+    } else {
+      setTaskSaveError('The task could not be saved. Check the authenticated backend connection and room selection.');
+    }
+    setIsSavingTask(false);
   };
 
   const handleCreateTicket = (e: React.FormEvent) => {
@@ -356,34 +367,18 @@ export const HousekeepingTab: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Priority</label>
-                  <select
-                    value={taskPriority}
-                    onChange={(e) => setTaskPriority(e.target.value as any)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
-                  >
-                    <option value="urgent">Urgent (VIP / Imminent)</option>
-                    <option value="high">High Priority</option>
-                    <option value="normal">Normal</option>
-                    <option value="low">Low Priority</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Assignee</label>
-                  <select
-                    value={taskAssignee}
-                    onChange={(e) => setTaskAssignee(e.target.value)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
-                  >
-                    {staffList.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Priority</label>
+                <select
+                  value={taskPriority}
+                  onChange={(e) => setTaskPriority(e.target.value as HousekeepingTask['priority'])}
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                >
+                  <option value="urgent">Urgent (VIP / Imminent)</option>
+                  <option value="high">High Priority</option>
+                  <option value="normal">Normal</option>
+                  <option value="low">Low Priority</option>
+                </select>
               </div>
 
               <div>
@@ -397,6 +392,8 @@ export const HousekeepingTab: React.FC = () => {
                 />
               </div>
 
+              {taskSaveError && <p role="alert" className="text-rose-700">{taskSaveError}</p>}
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -407,9 +404,10 @@ export const HousekeepingTab: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-indigo-600 text-white font-bold rounded"
+                  disabled={isSavingTask || !taskRoomId}
+                  className="px-4 py-1.5 bg-indigo-600 disabled:opacity-60 text-white font-bold rounded"
                 >
-                  Create Task
+                  {isSavingTask ? 'Creating...' : 'Create Task'}
                 </button>
               </div>
             </form>

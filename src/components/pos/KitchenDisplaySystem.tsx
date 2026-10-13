@@ -16,7 +16,7 @@ import { RestaurantOrder, KitchenStation, OrderItemStatus } from '../../types/ho
 import { useHotel } from '../../context/HotelContext';
 
 export const KitchenDisplaySystem: React.FC = () => {
-  const { orders, updateOrderItemStatus, updateOrderStatus, settings } = useHotel();
+  const { orders, updateOrderItemStatus, settings } = useHotel();
 
   const [selectedStation, setSelectedStation] = useState<KitchenStation | 'all'>('all');
   const [selectedKOTForModal, setSelectedKOTForModal] = useState<RestaurantOrder | null>(null);
@@ -72,19 +72,19 @@ export const KitchenDisplaySystem: React.FC = () => {
     },
   ];
 
-  const handleBumpOrder = (order: RestaurantOrder) => {
+  const handleBumpOrder = async (order: RestaurantOrder) => {
     if (order.status === 'sent_to_kitchen' || order.status === 'in_preparation') {
-      // Mark all items as ready
-      order.items.forEach((item) => {
-        updateOrderItemStatus(order.id, item.id, 'ready');
-      });
-      updateOrderStatus(order.id, 'ready');
+      for (const item of order.items) {
+        if (item.itemStatus !== 'cancelled' && item.itemStatus !== 'ready' && item.itemStatus !== 'served') {
+          if (!await updateOrderItemStatus(order.id, item.id, 'ready')) return;
+        }
+      }
     } else if (order.status === 'ready') {
-      // Mark all items as served
-      order.items.forEach((item) => {
-        updateOrderItemStatus(order.id, item.id, 'served');
-      });
-      updateOrderStatus(order.id, 'served');
+      for (const item of order.items) {
+        if (item.itemStatus !== 'cancelled' && item.itemStatus !== 'served') {
+          if (!await updateOrderItemStatus(order.id, item.id, 'served')) return;
+        }
+      }
     }
   };
 

@@ -34,7 +34,7 @@ class Property(models.Model):
     # Hotel Operations
     check_in_time = models.TimeField(default='14:00:00')
     check_out_time = models.TimeField(default='11:00:00')
-    current_business_date = models.DateField(default=timezone.now)
+    current_business_date = models.DateField(default=timezone.localdate)
     timezone_name = models.CharField(
         max_length=50, default='Africa/Addis_Ababa')
 

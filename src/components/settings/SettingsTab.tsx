@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Settings,
   Building2,
@@ -28,24 +28,48 @@ export const SettingsTab: React.FC = () => {
   const [checkInTime, setCheckInTime] = useState(settings.checkInTime);
   const [checkOutTime, setCheckOutTime] = useState(settings.checkOutTime);
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    setHotelName(settings.hotelName);
+    setTagline(settings.tagline);
+    setPhone(settings.phone);
+    setEmail(settings.email);
+    setAddress(settings.address);
+    setVatRate(settings.vatRatePercent);
+    setServiceCharge(settings.serviceChargePercent);
+    setTinNumber(settings.tinNumber);
+    setTelebirrShortCode(settings.telebirrShortCode);
+    setCheckInTime(settings.checkInTime);
+    setCheckOutTime(settings.checkOutTime);
+  }, [settings]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings({
-      hotelName,
-      tagline,
-      phone,
-      email,
-      address,
-      vatRatePercent: Number(vatRate),
-      serviceChargePercent: Number(serviceCharge),
-      tinNumber,
-      telebirrShortCode,
-      checkInTime,
-      checkOutTime,
-    });
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await updateSettings({
+        hotelName,
+        tagline,
+        phone,
+        email,
+        address,
+        vatRatePercent: Number(vatRate),
+        serviceChargePercent: Number(serviceCharge),
+        tinNumber,
+        telebirrShortCode,
+        checkInTime,
+        checkOutTime,
+      });
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save property settings.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -197,6 +221,7 @@ export const SettingsTab: React.FC = () => {
         {/* Save Bar */}
         <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
           <div>
+            {saveError && <p role="alert" className="mb-2 text-rose-700">{saveError}</p>}
             {isSaved && (
               <span className="inline-flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
                 <CheckCircle2 className="w-4 h-4" /> Settings updated successfully
@@ -205,9 +230,10 @@ export const SettingsTab: React.FC = () => {
           </div>
           <button
             type="submit"
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+            disabled={isSaving}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
           >
-            Save Hotel Configuration
+            {isSaving ? 'Saving...' : 'Save Hotel Configuration'}
           </button>
         </div>
       </form>
