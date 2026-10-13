@@ -1,6 +1,7 @@
 from decimal import Decimal
 from rest_framework import serializers
-from .models import Folio, FolioItem, Payment
+from .models import CashierShift, Folio, FolioItem, Payment
+from .services.cashier_shifts import get_shift_collection_totals
 
 
 class FolioItemSerializer(serializers.ModelSerializer):
@@ -41,9 +42,10 @@ class PaymentSerializer(serializers.ModelSerializer):
             'notes',
             'received_by',
             'received_by_name',
+            'completed_at',
             'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'completed_at', 'created_at']
 
 
 class FolioSerializer(serializers.ModelSerializer):
@@ -89,3 +91,64 @@ class TelebirrInitiateSerializer(serializers.Serializer):
         max_length=15, required=False, allow_blank=True)
     notes = serializers.CharField(
         max_length=255, required=False, allow_blank=True)
+
+
+class CashierShiftSerializer(serializers.ModelSerializer):
+    cashier_role = serializers.CharField(read_only=True)
+    cash_collected = serializers.SerializerMethodField()
+    telebirr_collected = serializers.SerializerMethodField()
+    cbe_card_collected = serializers.SerializerMethodField()
+    bank_transfer_collected = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CashierShift
+        fields = [
+            'id', 'business_date', 'shift_name', 'cashier', 'cashier_name',
+            'cashier_role', 'opening_float', 'cash_collected',
+            'telebirr_collected', 'cbe_card_collected',
+            'bank_transfer_collected', 'actual_closing_cash',
+            'discrepancy', 'status', 'opened_at', 'closed_at',
+            'closed_by', 'handover_notes',
+        ]
+        read_only_fields = fields
+
+    def _totals(self, instance):
+        if hasattr(instance, '_shift_collection_totals'):
+            return instance._shift_collection_totals
+        if instance.status == 'CLOSED':
+            instance._shift_collection_totals = {
+                'cash_collected': instance.cash_collected,
+                'telebirr_collected': instance.telebirr_collected,
+                'cbe_card_collected': instance.cbe_card_collected,
+                'bank_transfer_collected': instance.bank_transfer_collected,
+            }
+        else:
+            from django.utils import timezone
+            instance._shift_collection_totals = get_shift_collection_totals(
+                instance.cashier, instance.opened_at, timezone.now())
+        return instance._shift_collection_totals
+
+    def get_cash_collected(self, instance):
+        return self._totals(instance)['cash_collected']
+
+    def get_telebirr_collected(self, instance):
+        return self._totals(instance)['telebirr_collected']
+
+    def get_cbe_card_collected(self, instance):
+        return self._totals(instance)['cbe_card_collected']
+
+    def get_bank_transfer_collected(self, instance):
+        return self._totals(instance)['bank_transfer_collected']
+
+
+class OpenCashierShiftSerializer(serializers.Serializer):
+    shift_name = serializers.ChoiceField(choices=CashierShift.SHIFT_SLOTS)
+    opening_float = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0)
+
+
+class CloseCashierShiftSerializer(serializers.Serializer):
+    actual_closing_cash = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0)
+    handover_notes = serializers.CharField(
+        required=False, allow_blank=True, default='')

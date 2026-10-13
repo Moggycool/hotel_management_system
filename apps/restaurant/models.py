@@ -85,6 +85,9 @@ class RestaurantOrder(models.Model):
     waiter = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='restaurant_orders')
+    settled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='settled_restaurant_orders')
     waiter_name = models.CharField(max_length=150, blank=True)
     covers = models.PositiveSmallIntegerField(default=1)
     subtotal = models.DecimalField(

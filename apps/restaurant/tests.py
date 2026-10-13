@@ -118,6 +118,7 @@ def test_pos_order_creates_station_tickets_and_settles():
     order.refresh_from_db()
     assert order.status == 'SETTLED'
     assert order.payment_method == 'CASH'
+    assert order.settled_by == cashier
     assert AuditLog.objects.filter(action='RESTAURANT_ORDER_SETTLED').exists()
 
 

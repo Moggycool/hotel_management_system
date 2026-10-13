@@ -27,7 +27,7 @@ export interface Room {
   notes?: string;
 }
 
-export type ReservationStatus = 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled';
+export type ReservationStatus = 'payment_pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled';
 
 export interface FolioItem {
   id: string;
@@ -340,6 +340,7 @@ export interface CashierShiftRecord {
   cashCollected: number;
   telebirrCollected: number;
   cbeCardCollected: number;
+  bankTransferCollected: number;
   actualClosingCash: number;
   discrepancy: number; // actual - (opening + cashCollected)
   status: 'open' | 'closed';

@@ -21,6 +21,7 @@ import { FolioInvoiceModal } from './components/billing/FolioInvoiceModal';
 import { Reservation, Room, Guest } from './types/hotel';
 import { AuthenticatedStaff, clearApiAuthentication, hotelApi } from './api/hotelApi';
 import { LoginScreen } from './components/auth/LoginScreen';
+import { PublicBookingPage } from './components/public/PublicBookingPage';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
   const { setCurrentRole } = useHotel();
@@ -173,6 +174,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
 };
 
 export function App() {
+  const [appMode, setAppMode] = useState<'public' | 'staff'>('public');
   const [staff, setStaff] = useState<AuthenticatedStaff | null>(null);
   const [loginError, setLoginError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -193,10 +195,15 @@ export function App() {
   const handleLogout = () => {
     clearApiAuthentication();
     setStaff(null);
+    setAppMode('public');
   };
 
+  if (appMode === 'public') {
+    return <PublicBookingPage onStaffAccess={() => setAppMode('staff')} />;
+  }
+
   if (!staff) {
-    return <LoginScreen onLogin={handleLogin} isSubmitting={isSigningIn} error={loginError} />;
+    return <LoginScreen onLogin={handleLogin} isSubmitting={isSigningIn} error={loginError} onPublicSite={() => setAppMode('public')} />;
   }
 
   return (

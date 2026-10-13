@@ -1,34 +1,61 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Printer,
   Download,
   Users,
   Search,
-  Filter,
-  ShieldCheck,
-  FileText,
-  BadgeCheck,
-  Building2,
 } from 'lucide-react';
-import { useHotel } from '../../context/HotelContext';
+import { HotelSettings, Guest, Reservation } from '../../types/hotel';
+import { hotelApi } from '../../api/hotelApi';
 
 export const InHousePoliceManifestView: React.FC = () => {
-  const { reservations, guests, settings } = useHotel();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterNationality, setFilterNationality] = useState<string>('all');
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [propertySettings, setPropertySettings] = useState<Partial<HotelSettings> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isCurrent = true;
+    Promise.all([
+      hotelApi.fetchReservationsFromDjango(),
+      hotelApi.fetchGuestsFromDjango(),
+      hotelApi.fetchPropertySettingsFromDjango(),
+    ])
+      .then(([backendReservations, backendGuests, backendSettings]) => {
+        if (!isCurrent) return;
+        setReservations(backendReservations);
+        setGuests(backendGuests);
+        setPropertySettings(backendSettings);
+      })
+      .catch((requestError) => {
+        if (isCurrent) {
+          setError(requestError instanceof Error ? requestError.message : 'Unable to load the guest manifest.');
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   const inHouseReservations = reservations.filter((r) => r.status === 'checked_in');
 
   // Enrich with guest profile data if available
   const enrichedManifest = inHouseReservations.map((res) => {
-    const guestObj = guests.find((g) => g.id === res.guestId || g.fullName === res.guestName);
+    const guestObj = guests.find((g) => g.id === res.guestId);
     return {
       res,
       fullName: res.guestName,
-      phone: res.guestPhone,
-      idType: guestObj?.idType || 'FAYDA',
-      idNumber: guestObj?.idNumber || 'FAN-8819-2041',
-      nationality: guestObj?.nationality || 'Ethiopian',
+      phone: guestObj?.phone || res.guestPhone || 'Not recorded',
+      idNumber: guestObj?.idNumber?.trim() || '',
+      idType: guestObj?.idNumber?.trim() ? guestObj.idType || '' : '',
+      nationality: guestObj?.nationality?.trim() || '',
       roomNumber: res.roomNumber,
       roomType: res.roomType,
       checkInDate: res.checkInDate,
@@ -47,7 +74,7 @@ export const InHousePoliceManifestView: React.FC = () => {
     const matchesNat =
       filterNationality === 'all' ||
       (filterNationality === 'ethiopian' && item.nationality.toLowerCase().includes('ethiopia')) ||
-      (filterNationality === 'foreign' && !item.nationality.toLowerCase().includes('ethiopia'));
+      (filterNationality === 'foreign' && item.nationality !== '' && !item.nationality.toLowerCase().includes('ethiopia'));
     return matchesSearch && matchesNat;
   });
 
@@ -57,9 +84,9 @@ export const InHousePoliceManifestView: React.FC = () => {
 
   const handleExportCsv = () => {
     const csvRows = [
-      ['Arbaminch Tourist Hotel - Official In-House Guest Police Manifest'],
-      ['Date Generated', settings.businessDate],
-      ['Property TIN', '0062819401'],
+      [`${propertySettings?.hotelName || 'Property'} - In-House Guest Manifest`],
+      ['Date Generated', propertySettings?.businessDate || 'Not available'],
+      ['Property TIN', propertySettings?.tinNumber || 'Not configured'],
       [],
       [
         'Room #',
@@ -76,9 +103,9 @@ export const InHousePoliceManifestView: React.FC = () => {
       ...filteredManifest.map((item) => [
         item.roomNumber,
         item.fullName,
-        item.nationality,
-        item.idType,
-        item.idNumber,
+        item.nationality || 'Not recorded',
+        item.idType || 'Not recorded',
+        item.idNumber || 'Not recorded',
         item.phone,
         item.checkInDate,
         item.checkOutDate,
@@ -91,11 +118,19 @@ export const InHousePoliceManifestView: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Police_Guest_Manifest_${settings.businessDate}.csv`);
+    link.setAttribute('download', `Guest_Manifest_${propertySettings?.businessDate || 'current'}.csv`);
     document.body.appendChild(link);
     link.click();
     link.remove();
   };
+
+  if (isLoading) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600" role="status">Loading guest manifest from the hotel server...</div>;
+  }
+
+  if (error || !propertySettings) {
+    return <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900" role="alert">Guest manifest unavailable: {error || 'Property settings are unavailable.'}</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -104,14 +139,14 @@ export const InHousePoliceManifestView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-bold text-slate-900">
-              In-House Guest Police & Municipal Manifest
+              {propertySettings.hotelName || 'Property'} In-House Guest Manifest
             </h3>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-              ERCA & Police Certified
+              Backend Records
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Official mandatory guest registry for local authorities and Gamo Zone tourism administration.
+            Persisted in-house stays and guest identity details. Missing information is marked as not recorded.
           </p>
         </div>
 
@@ -198,7 +233,8 @@ export const InHousePoliceManifestView: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3 px-3 font-mono text-slate-700">
-                      <span className="font-semibold text-slate-900">{item.idType}:</span> {item.idNumber}
+                      {item.idType ? <span className="font-semibold text-slate-900">{item.idType}: </span> : null}
+                      {item.idNumber || 'Not recorded'}
                     </td>
                     <td className="py-3 px-3 text-slate-600 font-mono text-[11px]">
                       {item.phone}
@@ -225,7 +261,7 @@ export const InHousePoliceManifestView: React.FC = () => {
 
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-600">
           <span>Total In-House Guests Registered: {filteredManifest.length}</span>
-          <span className="text-slate-400">Certified by Front Office Manager & Security Desk</span>
+          <span className="text-slate-400">Property TIN: {propertySettings.tinNumber || 'Not configured'}</span>
         </div>
       </div>
     </div>

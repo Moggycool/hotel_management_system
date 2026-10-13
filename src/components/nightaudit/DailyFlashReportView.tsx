@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Printer,
   Download,
@@ -13,25 +13,58 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { DailyFlashReportData } from '../../types/hotel';
+import { BackendDailyFlashReport, hotelApi } from '../../api/hotelApi';
 
 export const DailyFlashReportView: React.FC = () => {
-  const { settings, getDailyFlashReport } = useHotel();
+  const { settings } = useHotel();
   const [selectedDate, setSelectedDate] = useState<string>(
     settings.businessDate || new Date().toISOString().split('T')[0]
   );
 
-  const flashData: DailyFlashReportData = getDailyFlashReport(selectedDate);
+  const [reportData, setReportData] = useState<BackendDailyFlashReport | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isCurrent = true;
+    setIsLoading(true);
+    setError(null);
+    hotelApi.fetchDailyFlashReportFromDjango(selectedDate)
+      .then((result) => {
+        if (isCurrent) setReportData(result);
+      })
+      .catch((requestError) => {
+        if (isCurrent) {
+          setReportData(null);
+          setError(requestError instanceof Error ? requestError.message : 'Unable to load the report.');
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedDate]);
+
+  const flashData: DailyFlashReportData | undefined = reportData?.report;
+  const property = reportData?.property;
 
   const handlePrint = () => {
     window.print();
   };
 
   const handleExportCsv = () => {
+    if (!flashData || !property) return;
     const csvRows = [
-      ['Arbaminch Tourist Hotel - Daily Operating Flash Report (DOR)'],
+      [`${property.name} - Daily Operating Flash Report (DOR)`],
       ['Business Date', flashData.businessDate],
-      ['TIN Number', '0062819401'],
-      ['VAT Reg Number', 'VAT-ETH-992014'],
+      ['Property', property.name],
+      ['TIN Number', property.tinNumber],
+      ['Address', property.address],
+      ['VAT Rate', `${property.vatRatePercent}%`],
+      ['Service Charge Rate', `${property.serviceChargeRatePercent}%`],
       [],
       ['Metric', 'Value', 'Unit'],
       ['Total Rooms', flashData.totalRooms, 'Rooms'],
@@ -47,8 +80,8 @@ export const DailyFlashReportView: React.FC = () => {
       ['Spa & Wellness', flashData.spaRevenue],
       ['Miscellaneous & Tours', flashData.otherRevenue],
       ['Net Subtotal', flashData.subtotal],
-      ['Service Charge (10%)', flashData.serviceCharge],
-      ['VAT (15% ERCA)', flashData.vat15Percent],
+      [`Service Charge (${property.serviceChargeRatePercent}%)`, flashData.serviceCharge],
+      [`VAT (${property.vatRatePercent}%)`, flashData.vat15Percent],
       ['Gross Operating Revenue', flashData.grossRevenue],
       [],
       ['Settlement Method', 'Amount (ETB)'],
@@ -67,6 +100,14 @@ export const DailyFlashReportView: React.FC = () => {
     link.remove();
   };
 
+  if (isLoading) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600" role="status">Loading persisted daily report...</div>;
+  }
+
+  if (error || !flashData || !property) {
+    return <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900" role="alert">Daily report unavailable: {error || 'The server returned incomplete report data.'}</div>;
+  }
+
   return (
     <div className="space-y-6">
       {/* Report Controls Header */}
@@ -74,14 +115,14 @@ export const DailyFlashReportView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-bold text-slate-900">
-              Manager's Daily Operating Flash Report (DOR)
+              {property.name || 'Daily Operating Flash Report (DOR)'}
             </h3>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
-              Official Executive Flash
+              Persisted Server Report
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time daily KPI performance, departmental revenue, and tax distribution.
+            Persisted daily KPIs, departmental revenue, settlements, and configured property tax rates.
           </p>
         </div>
 
@@ -149,7 +190,7 @@ export const DailyFlashReportView: React.FC = () => {
             <span className="text-xs text-slate-500 font-medium">Per Sold Room</span>
           </div>
           <span className="text-[11px] text-slate-400 mt-3 block">
-            Target benchmark: 3,500 ETB
+            Per sold room
           </span>
         </div>
 
@@ -161,7 +202,7 @@ export const DailyFlashReportView: React.FC = () => {
             <span className="text-2xl font-bold text-slate-900">
               {flashData.revpar.toLocaleString()} <span className="text-xs font-normal text-slate-500">ETB</span>
             </span>
-            <span className="text-xs text-slate-500 font-medium">Across 16 Keys</span>
+            <span className="text-xs text-slate-500 font-medium">Across {flashData.totalRooms} keys</span>
           </div>
           <span className="text-[11px] text-slate-400 mt-3 block">
             Capacity yield metric
@@ -177,11 +218,11 @@ export const DailyFlashReportView: React.FC = () => {
               {flashData.grossRevenue.toLocaleString()} <span className="text-xs font-normal text-indigo-700">ETB</span>
             </span>
             <span className="text-xs text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded">
-              Audited
+              {flashData.businessDate}
             </span>
           </div>
           <span className="text-[11px] text-indigo-800 font-medium mt-3 block">
-            Includes 10% Svc & 15% VAT
+            Includes {property.serviceChargeRatePercent}% service charge & {property.vatRatePercent}% VAT
           </span>
         </div>
       </div>
@@ -196,7 +237,7 @@ export const DailyFlashReportView: React.FC = () => {
                 Departmental Revenue Ledger (Daily Flash)
               </h4>
               <p className="text-xs text-slate-500">
-                Statutory breakdown compliant with Ethiopian Ministry of Revenues
+                Persisted ledger totals with configured property rates
               </p>
             </div>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 text-slate-700">
@@ -282,14 +323,14 @@ export const DailyFlashReportView: React.FC = () => {
                   <td className="py-2.5 text-right pr-2">100%</td>
                 </tr>
                 <tr>
-                  <td className="py-2.5 text-slate-700">Service Charge (10% Statutory)</td>
+                  <td className="py-2.5 text-slate-700">Service Charge ({property.serviceChargeRatePercent}%)</td>
                   <td className="py-2.5 text-right font-semibold text-slate-900">
                     {flashData.serviceCharge.toLocaleString()} ETB
                   </td>
                   <td className="py-2.5 text-right text-slate-400">-</td>
                 </tr>
                 <tr>
-                  <td className="py-2.5 text-slate-700">Value Added Tax (15% ERCA VAT)</td>
+                  <td className="py-2.5 text-slate-700">Value Added Tax ({property.vatRatePercent}%)</td>
                   <td className="py-2.5 text-right font-semibold text-slate-900">
                     {flashData.vat15Percent.toLocaleString()} ETB
                   </td>
@@ -322,8 +363,8 @@ export const DailyFlashReportView: React.FC = () => {
                   <span>{flashData.telebirrTotal.toLocaleString()} ETB</span>
                 </div>
                 <div className="flex justify-between text-[11px] text-emerald-700">
-                  <span>Merchant: 194022</span>
-                  <span>65% share</span>
+                  <span>Merchant: {property.telebirrMerchantShortCode || 'Not configured'}</span>
+                  <span>Recorded payments</span>
                 </div>
               </div>
 
@@ -334,7 +375,7 @@ export const DailyFlashReportView: React.FC = () => {
                 </div>
                 <div className="flex justify-between text-[11px] text-indigo-700">
                   <span>Commercial Bank of Ethiopia</span>
-                  <span>20% share</span>
+                  <span>Recorded payments</span>
                 </div>
               </div>
 
@@ -345,7 +386,7 @@ export const DailyFlashReportView: React.FC = () => {
                 </div>
                 <div className="flex justify-between text-[11px] text-amber-700">
                   <span>Physical Cash Count</span>
-                  <span>15% share</span>
+                  <span>Recorded payments</span>
                 </div>
               </div>
             </div>

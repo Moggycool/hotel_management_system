@@ -174,8 +174,10 @@ class RestaurantOrderViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         order.telebirr_transaction_id = str(
             request.data.get('telebirr_transaction_id', ''))
         order.settled_at = timezone.now()
+        order.settled_by = request.user
         order.save(update_fields=['status', 'payment_method',
-                   'payment_reference', 'telebirr_transaction_id', 'settled_at'])
+                   'payment_reference', 'telebirr_transaction_id', 'settled_at',
+                                  'settled_by'])
         log_audit_event(
             module=AuditModule.FOLIO,
             action='RESTAURANT_ORDER_SETTLED',
@@ -185,6 +187,7 @@ class RestaurantOrderViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             after_state={'status': order.status,
                          'payment_method': method,
                          'amount': str(order.grand_total),
+                         'settled_by': str(request.user.pk),
                          'stock_movements': [str(movement.pk) for movement in stock_movements]},
         )
         return Response(self.get_serializer(order).data)

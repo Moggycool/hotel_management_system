@@ -5,9 +5,10 @@ interface LoginScreenProps {
   onLogin: (email: string, password: string) => Promise<void>;
   isSubmitting: boolean;
   error: string;
+  onPublicSite?: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, isSubmitting, error }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, isSubmitting, error, onPublicSite }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -66,6 +67,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, isSubmitting,
             <LockKeyhole className="h-4 w-4" />
             {isSubmitting ? 'Signing in...' : 'Sign In'}
           </button>
+          {onPublicSite && (
+            <button type="button" onClick={onPublicSite} className="w-full border-t border-slate-200 pt-4 text-sm font-semibold text-slate-600 hover:text-emerald-700">
+              Return to guest booking
+            </button>
+          )}
         </form>
       </section>
     </main>

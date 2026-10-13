@@ -37,7 +37,6 @@ import {
   initialRestaurantTables,
   initialRestaurantOrders,
   initialNightAuditReports,
-  initialCashierShifts,
   getRelativeDate,
 } from '../data/initialData';
 import { hotelApi } from '../api/hotelApi';
@@ -64,10 +63,12 @@ interface HotelContextType {
   // Milestone 5: Night Audit & Financial Reporting
   nightAuditReports: NightAuditReport[];
   cashierShifts: CashierShiftRecord[];
+  cashierShiftsLoading: boolean;
+  cashierShiftsError: string | null;
   runNightAudit: (notes?: string, closedBy?: string) => Promise<NightAuditReport>;
   reopenBusinessDate: (reportId: string, reason: string) => void;
-  openCashierShift: (shiftName: CashierShiftRecord['shiftName'], cashierName: string, openingFloat: number) => void;
-  closeCashierShift: (shiftId: string, actualClosingCash: number, notes?: string) => void;
+  openCashierShift: (shiftName: CashierShiftRecord['shiftName'], openingFloat: number) => Promise<void>;
+  closeCashierShift: (shiftId: string, actualClosingCash: number, notes?: string) => Promise<void>;
   getDailyFlashReport: (dateStr?: string) => DailyFlashReportData;
 
   // Actions
@@ -109,6 +110,7 @@ interface HotelContextType {
   ) => Promise<Reservation>;
   cancelReservation: (reservationId: string) => Promise<boolean>;
   markReservationNoShow: (reservationId: string) => Promise<boolean>;
+  recordReservationDeposit: (reservation: Reservation, amount: number, method: 'CASH' | 'TELEBIRR' | 'CBE_BIRR' | 'CARD' | 'BANK_TRANSFER', reference: string, notes: string) => Promise<void>;
   updateRoomStatus: (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => void;
   updateRoom: (roomId: string, updates: Partial<Room>) => void;
   saveRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
@@ -191,7 +193,6 @@ const STORAGE_KEYS = {
   TABLES: 'gh_hotel_tables_v1',
   ORDERS: 'gh_hotel_orders_v1',
   NIGHT_AUDITS: 'gh_hotel_night_audits_v1',
-  CASHIER_SHIFTS: 'gh_hotel_cashier_shifts_v1',
 };
 
 export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -238,14 +239,9 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   });
 
-  const [cashierShifts, setCashierShifts] = useState<CashierShiftRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.CASHIER_SHIFTS);
-      return saved ? JSON.parse(saved) : initialCashierShifts;
-    } catch {
-      return initialCashierShifts;
-    }
-  });
+  const [cashierShifts, setCashierShifts] = useState<CashierShiftRecord[]>([]);
+  const [cashierShiftsLoading, setCashierShiftsLoading] = useState(true);
+  const [cashierShiftsError, setCashierShiftsError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -431,10 +427,26 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CASHIER_SHIFTS, JSON.stringify(cashierShifts));
-    } catch {}
-  }, [cashierShifts]);
+    let isCurrent = true;
+    hotelApi.fetchCashierShiftsFromDjango()
+      .then((backendShifts) => {
+        if (!isCurrent) return;
+        setCashierShifts(backendShifts);
+        setCashierShiftsError(null);
+      })
+      .catch((error) => {
+        if (!isCurrent) return;
+        setCashierShifts([]);
+        setCashierShiftsError(error instanceof Error ? error.message : 'Could not load cashier shifts.');
+      })
+      .finally(() => {
+        if (isCurrent) setCashierShiftsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   // Check In action
   const checkInReservation = async (reservationId: string): Promise<boolean> => {
@@ -791,6 +803,30 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       window.alert(error instanceof Error ? error.message : 'Could not mark this reservation as a no-show.');
       return false;
     }
+  };
+
+  const recordReservationDeposit = async (
+    reservation: Reservation,
+    amount: number,
+    method: 'CASH' | 'TELEBIRR' | 'CBE_BIRR' | 'CARD' | 'BANK_TRANSFER',
+    reference: string,
+    notes: string,
+  ): Promise<void> => {
+    await hotelApi.recordReservationDeposit({
+      confirmationCode: reservation.confirmationCode,
+      amount,
+      method,
+      reference,
+      notes,
+    });
+    const updatedReservations = await hotelApi.fetchReservationsFromDjango();
+    setReservations((current) => {
+      const backendCodes = new Set(updatedReservations.map((item) => item.confirmationCode));
+      return [
+        ...current.filter((item) => item.databaseId && !backendCodes.has(item.confirmationCode)),
+        ...updatedReservations,
+      ];
+    });
   };
 
   const updateRoomStatus = (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => {
@@ -1380,69 +1416,23 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   };
 
-  const openCashierShift = (
+  const openCashierShift = async (
     shiftName: CashierShiftRecord['shiftName'],
-    cashierName: string,
     openingFloat: number
-  ) => {
-    const newShift: CashierShiftRecord = {
-      id: `shift-${Date.now()}`,
-      shiftName,
-      cashierName,
-      cashierRole: currentRole || 'Cashier',
-      businessDate: settings.businessDate || getRelativeDate(0),
-      openingFloat,
-      cashCollected: 0,
-      telebirrCollected: 0,
-      cbeCardCollected: 0,
-      actualClosingCash: 0,
-      discrepancy: 0,
-      status: 'open',
-      openedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    };
-    setCashierShifts((prev) => [newShift, ...prev]);
-    addAuditLog({
-      actorName: cashierName,
-      actorRole: currentRole || 'Cashier',
-      action: 'CASHIER_SHIFT_OPEN',
-      module: 'FOLIO',
-      details: `Opened ${shiftName} with opening float ${openingFloat} ETB.`,
-      severity: 'info',
-      ipAddress: '192.168.1.30',
-    });
+  ): Promise<void> => {
+    const shift = await hotelApi.openCashierShiftInDjango(shiftName, openingFloat);
+    setCashierShifts((prev) => [shift, ...prev.filter((item) => item.id !== shift.id)]);
   };
 
-  const closeCashierShift = (
+  const closeCashierShift = async (
     shiftId: string,
     actualClosingCash: number,
     notes?: string
-  ) => {
-    setCashierShifts((prev) =>
-      prev.map((s) => {
-        if (s.id === shiftId) {
-          const expectedCash = s.openingFloat + s.cashCollected;
-          const discrepancy = actualClosingCash - expectedCash;
-          return {
-            ...s,
-            status: 'closed',
-            actualClosingCash,
-            discrepancy,
-            closedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-            handoverNotes: notes || 'Shift closed and drawer reconciled.',
-          };
-        }
-        return s;
-      })
+  ): Promise<void> => {
+    const shift = await hotelApi.closeCashierShiftInDjango(
+      shiftId, actualClosingCash, notes || '',
     );
-    addAuditLog({
-      actorName: currentRole || 'Cashier',
-      actorRole: currentRole || 'Cashier',
-      action: 'CASHIER_SHIFT_CLOSE',
-      module: 'FOLIO',
-      details: `Closed shift ${shiftId}. Actual cash: ${actualClosingCash} ETB. Notes: ${notes || 'Reconciled.'}`,
-      severity: 'info',
-      ipAddress: '192.168.1.30',
-    });
+    setCashierShifts((prev) => prev.map((item) => item.id === shift.id ? shift : item));
   };
 
   const resetToDemoData = () => {
@@ -1456,7 +1446,6 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     localStorage.removeItem(STORAGE_KEYS.TABLES);
     localStorage.removeItem(STORAGE_KEYS.ORDERS);
     localStorage.removeItem(STORAGE_KEYS.NIGHT_AUDITS);
-    localStorage.removeItem(STORAGE_KEYS.CASHIER_SHIFTS);
     setRooms(initialRooms);
     setReservations(initialReservations);
     setGuests(initialGuests);
@@ -1467,7 +1456,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setTables(initialRestaurantTables);
     setOrders(initialRestaurantOrders);
     setNightAuditReports(initialNightAuditReports);
-    setCashierShifts(initialCashierShifts);
+    setCashierShifts([]);
   };
 
   // Compute metrics
@@ -1553,6 +1542,8 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         orders,
         nightAuditReports,
         cashierShifts,
+        cashierShiftsLoading,
+        cashierShiftsError,
         runNightAudit,
         reopenBusinessDate,
         openCashierShift,
@@ -1563,6 +1554,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         createReservation,
         cancelReservation,
         markReservationNoShow,
+        recordReservationDeposit,
         updateRoomStatus,
         updateRoom,
         saveRoom,

@@ -221,6 +221,8 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'confirmed':
         return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'payment_pending':
+        return 'bg-amber-50 text-amber-800 border-amber-200';
       case 'checked_out':
         return 'bg-slate-100 text-slate-700 border-slate-200';
       case 'cancelled':
@@ -392,7 +394,7 @@ export const ReservationsTab: React.FC<ReservationsTabProps> = ({
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>Status:</span>
           </div>
-          {(['all', 'confirmed', 'checked_in', 'checked_out', 'cancelled'] as const).map((st) => (
+          {(['all', 'payment_pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled'] as const).map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}

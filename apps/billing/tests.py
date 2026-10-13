@@ -67,6 +67,7 @@ def test_folio_charge_and_payment_confirmation_are_audited():
     assert confirm_response.status_code == 200
     payment.refresh_from_db()
     assert payment.status == 'COMPLETED'
+    assert payment.received_by == cashier
     payment_log = AuditLog.objects.get(action='PAYMENT_CONFIRMED')
     assert payment_log.actor_id == cashier.id
     assert payment_log.before_state['status'] == 'PENDING'

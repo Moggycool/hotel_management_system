@@ -186,6 +186,17 @@ class ReservationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'check_out_date': 'Check-out must be after check-in.'
             })
+        if self.instance is None:
+            deposit = attrs.get('deposit_paid_etb', Decimal('0.00'))
+            total = attrs.get('grand_total_etb', Decimal('0.00'))
+            if deposit <= Decimal('0.00'):
+                raise serializers.ValidationError({
+                    'deposit_paid_etb': 'A positive deposit is required before a reservation can be confirmed.'
+                })
+            if deposit > total:
+                raise serializers.ValidationError({
+                    'deposit_paid_etb': 'Deposit cannot exceed the reservation total.'
+                })
         return attrs
 
     @transaction.atomic
@@ -195,8 +206,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         guest_email = validated_data.pop('guest_email', None) or ''
         guest_phone = validated_data.pop('guest_phone', None) or ''
         id_type_raw = (validated_data.pop('id_type', None) or 'FAYDA').upper()
-        id_number_val = validated_data.pop(
-            'id_number', None) or f"FAN-9901-{random.randint(1000, 9999)}"
+        id_number_val = validated_data.pop('id_number', None) or ''
         room_number_val = validated_data.pop('room_number', None)
         rate_plan_name_val = validated_data.pop(
             'rate_plan_name', None) or 'Standard Flexible Rate'
@@ -340,3 +350,46 @@ class RoomHoldSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomHold
         fields = '__all__'
+
+
+class PublicBookingSerializer(serializers.Serializer):
+    room_id = serializers.UUIDField()
+    check_in_date = serializers.DateField()
+    check_out_date = serializers.DateField()
+    adults = serializers.IntegerField(min_value=1, max_value=20)
+    children = serializers.IntegerField(min_value=0, max_value=20, default=0)
+    guest_name = serializers.CharField(max_length=150)
+    guest_email = serializers.EmailField(
+        required=False, allow_blank=True, default='')
+    guest_phone = serializers.CharField(max_length=25)
+    nationality = serializers.CharField(
+        max_length=50, required=False, default='')
+    special_requests = serializers.CharField(
+        required=False, allow_blank=True, default='')
+    privacy_consent = serializers.BooleanField()
+
+    def validate(self, attrs):
+        if attrs['check_in_date'] >= attrs['check_out_date']:
+            raise serializers.ValidationError({
+                'check_out_date': 'Check-out must be after check-in.'
+            })
+        if attrs['check_in_date'] < timezone.localdate():
+            raise serializers.ValidationError({
+                'check_in_date': 'Arrival date cannot be in the past.'
+            })
+        if not attrs['privacy_consent']:
+            raise serializers.ValidationError({
+                'privacy_consent': 'Consent is required to submit a booking request.'
+            })
+        return attrs
+
+
+class RecordReservationDepositSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
+    method = serializers.ChoiceField(choices=[
+        'CASH', 'TELEBIRR', 'CBE_BIRR', 'CARD', 'BANK_TRANSFER',
+    ])
+    reference = serializers.CharField(
+        required=False, allow_blank=True, default='')
+    notes = serializers.CharField(required=False, allow_blank=True, default='')

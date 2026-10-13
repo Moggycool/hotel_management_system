@@ -1,6 +1,7 @@
 import pytest
 from decimal import Decimal
 from datetime import date, timedelta
+from django.utils import timezone
 from apps.accounts.models import StaffRole, User
 from apps.rooms.models import RoomType, Room, RatePlan, RoomStatus
 from apps.rooms.services import AvailabilityEngine
@@ -48,7 +49,7 @@ def setup_rooms(db):
 
 @pytest.mark.django_db
 def test_availability_engine_excludes_overlapping_reservations(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     check_in = today
     check_out = today + timedelta(days=3)
 
@@ -77,7 +78,7 @@ def test_availability_engine_excludes_overlapping_reservations(setup_rooms):
 
 @pytest.mark.django_db
 def test_room_availability_api_filters_by_requested_dates(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     Reservation.objects.create(
         confirmation_code='TEST-AVAILABILITY-API',
         guest=setup_rooms['guest'],
@@ -104,7 +105,7 @@ def test_room_availability_api_filters_by_requested_dates(setup_rooms):
 
 @pytest.mark.django_db
 def test_room_availability_api_rejects_invalid_date_window(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     response = authenticated_client(setup_rooms['user']).get(
         '/api/v1/rooms/availability/',
         {'check_in': str(today + timedelta(days=2)),
@@ -112,6 +113,61 @@ def test_room_availability_api_rejects_invalid_date_window(setup_rooms):
     )
 
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_reservation_without_identity_number_does_not_generate_fake_id(setup_rooms):
+    today = timezone.localdate()
+    response = authenticated_client(setup_rooms['user']).post(
+        '/api/v1/reservations/',
+        {
+            'guest_name': 'Guest Without ID',
+            'guest_phone': '+251911000099',
+            'room_number': setup_rooms['r1'].room_number,
+            'rate_plan_name': setup_rooms['rp'].name,
+            'check_in_date': str(today),
+            'check_out_date': str(today + timedelta(days=1)),
+            'adults': 1,
+            'children': 0,
+            'room_rate_total_etb': '5000.00',
+            'service_charge_etb': '500.00',
+            'vat_etb': '750.00',
+            'grand_total_etb': '6250.00',
+            'deposit_paid_etb': '500.00',
+        },
+        format='json',
+    )
+
+    assert response.status_code == 201, response.data
+    guest = Guest.objects.get(pk=response.data['guest'])
+    assert guest.id_number == ''
+
+
+@pytest.mark.django_db
+def test_staff_reservation_rejects_zero_deposit(setup_rooms):
+    today = timezone.localdate()
+    response = authenticated_client(setup_rooms['user']).post(
+        '/api/v1/reservations/',
+        {
+            'guest_name': 'No Deposit Guest',
+            'guest_phone': '+251911000098',
+            'room_number': setup_rooms['r1'].room_number,
+            'rate_plan_name': setup_rooms['rp'].name,
+            'check_in_date': str(today),
+            'check_out_date': str(today + timedelta(days=1)),
+            'room_rate_total_etb': '5000.00',
+            'service_charge_etb': '500.00',
+            'vat_etb': '750.00',
+            'grand_total_etb': '6250.00',
+            'deposit_paid_etb': '0.00',
+        },
+        format='json',
+    )
+
+    assert response.status_code == 400
+    assert 'deposit_paid_etb' in response.data
+    assert not Reservation.objects.filter(
+        guest__phone_number='+251911000098').exists()
 
 
 @pytest.mark.django_db
@@ -184,7 +240,7 @@ def test_housekeeping_role_cannot_write_room_inventory(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_check_in_and_out_update_room_and_queue_cleaning(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     reservation = Reservation.objects.create(
         confirmation_code='TEST-CHECKIN-001',
         guest=setup_rooms['guest'],
@@ -197,6 +253,7 @@ def test_reservation_check_in_and_out_update_room_and_queue_cleaning(setup_rooms
         service_charge_etb=Decimal('500.00'),
         vat_etb=Decimal('750.00'),
         grand_total_etb=Decimal('6250.00'),
+        deposit_paid_etb=Decimal('500.00'),
     )
     client = authenticated_client(setup_rooms['user'])
 
@@ -245,7 +302,7 @@ def test_reservation_check_in_and_out_update_room_and_queue_cleaning(setup_rooms
 
 @pytest.mark.django_db
 def test_cancellation_and_no_show_release_room_availability(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     cancelled = Reservation.objects.create(
         confirmation_code='TEST-CANCEL-001',
         guest=setup_rooms['guest'],
@@ -258,6 +315,7 @@ def test_cancellation_and_no_show_release_room_availability(setup_rooms):
         service_charge_etb=Decimal('1000.00'),
         vat_etb=Decimal('1500.00'),
         grand_total_etb=Decimal('12500.00'),
+        deposit_paid_etb=Decimal('500.00'),
     )
     no_show = Reservation.objects.create(
         confirmation_code='TEST-NOSHOW-001',
@@ -271,6 +329,7 @@ def test_cancellation_and_no_show_release_room_availability(setup_rooms):
         service_charge_etb=Decimal('1000.00'),
         vat_etb=Decimal('1500.00'),
         grand_total_etb=Decimal('12500.00'),
+        deposit_paid_etb=Decimal('500.00'),
     )
     client = authenticated_client(setup_rooms['user'])
 
@@ -303,7 +362,7 @@ def test_cancellation_and_no_show_release_room_availability(setup_rooms):
 
 @pytest.mark.django_db
 def test_future_reservation_cannot_be_marked_no_show(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     reservation = Reservation.objects.create(
         confirmation_code='TEST-FUTURE-NOSHOW',
         guest=setup_rooms['guest'],
@@ -331,7 +390,7 @@ def test_future_reservation_cannot_be_marked_no_show(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_api_rejects_overlapping_room_booking(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     Reservation.objects.create(
         confirmation_code='TEST-OVERLAP-001',
         guest=setup_rooms['guest'],
@@ -372,7 +431,7 @@ def test_reservation_api_rejects_overlapping_room_booking(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_api_creates_valid_booking_in_available_room(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     response = authenticated_client(setup_rooms['user']).post(
         '/api/v1/reservations/',
         {
@@ -404,7 +463,7 @@ def test_reservation_api_creates_valid_booking_in_available_room(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_api_cannot_set_lifecycle_status_or_timestamps(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     response = authenticated_client(setup_rooms['user']).post(
         '/api/v1/reservations/',
         {
@@ -441,7 +500,7 @@ def test_reservation_api_cannot_set_lifecycle_status_or_timestamps(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_api_disallows_hard_delete(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     reservation = Reservation.objects.create(
         confirmation_code='TEST-NO-HARD-DELETE',
         guest=setup_rooms['guest'],
@@ -465,7 +524,7 @@ def test_reservation_api_disallows_hard_delete(setup_rooms):
 
 @pytest.mark.django_db
 def test_reservation_patch_preserves_dates_and_rejects_conflicting_room(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     existing = Reservation.objects.create(
         confirmation_code='TEST-PATCH-001',
         guest=setup_rooms['guest'],
@@ -516,7 +575,7 @@ def test_reservation_patch_preserves_dates_and_rejects_conflicting_room(setup_ro
 
 @pytest.mark.django_db
 def test_reservation_api_rejects_room_outside_inventory(setup_rooms):
-    today = date.today()
+    today = timezone.localdate()
     response = authenticated_client(setup_rooms['user']).post(
         '/api/v1/reservations/',
         {

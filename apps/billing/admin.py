@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Folio, FolioItem, Payment
+from .models import CashierShift, Folio, FolioItem, Payment
 
 
 class FolioItemInline(admin.TabularInline):
@@ -36,3 +36,30 @@ class PaymentAdmin(admin.ModelAdmin):
     def amount_display(self, obj):
         return f"{obj.amount:,.2f} ETB"
     amount_display.short_description = "Amount"
+
+
+@admin.register(CashierShift)
+class CashierShiftAdmin(admin.ModelAdmin):
+    list_display = (
+        'business_date', 'shift_name', 'cashier_name', 'status',
+        'opening_float', 'cash_collected', 'actual_closing_cash',
+        'discrepancy', 'opened_at', 'closed_at',
+    )
+    list_filter = ('business_date', 'shift_name', 'status')
+    search_fields = ('cashier_name', 'cashier__email', 'handover_notes')
+    readonly_fields = (
+        'business_date', 'shift_name', 'cashier', 'cashier_name',
+        'cashier_role', 'opening_float', 'cash_collected',
+        'telebirr_collected', 'cbe_card_collected',
+        'bank_transfer_collected', 'actual_closing_cash', 'discrepancy',
+        'status', 'opened_at', 'closed_at', 'closed_by', 'handover_notes',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

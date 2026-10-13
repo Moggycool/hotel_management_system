@@ -35,6 +35,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
     checkInReservation,
     checkOutReservation,
     cancelReservation,
+    recordReservationDeposit,
     addFolioCharge,
     recordPayment,
     reservations,
@@ -53,6 +54,12 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [payAmount, setPayAmount] = useState<number>(currentRes.balanceDue || 50);
   const [payMethod, setPayMethod] = useState<PaymentMethod>('telebirr');
+  const [depositAmount, setDepositAmount] = useState<number>(Math.min(500, Math.max(1, currentRes.grandTotal - currentRes.amountPaid)));
+  const [depositMethod, setDepositMethod] = useState<'CASH' | 'TELEBIRR' | 'CBE_BIRR' | 'CARD' | 'BANK_TRANSFER'>('CASH');
+  const [depositReference, setDepositReference] = useState('');
+  const [depositNotes, setDepositNotes] = useState('');
+  const [isRecordingDeposit, setIsRecordingDeposit] = useState(false);
+  const [depositError, setDepositError] = useState('');
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
@@ -126,6 +133,8 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
         return 'bg-emerald-100 text-emerald-800 border-emerald-200';
       case 'confirmed':
         return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'payment_pending':
+        return 'bg-amber-100 text-amber-900 border-amber-300';
       case 'checked_out':
         return 'bg-slate-100 text-slate-700 border-slate-200';
       case 'cancelled':
@@ -366,7 +375,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
           </div>
 
           {/* Payments & Settle Balance */}
-          {currentRes.balanceDue > 0 && currentRes.status !== 'cancelled' && (
+          {currentRes.balanceDue > 0 && currentRes.status !== 'cancelled' && currentRes.status !== 'payment_pending' && (
             <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div>
                 <span className="font-bold text-amber-950 block">Outstanding Balance: {currentRes.balanceDue.toLocaleString()} {settings.currency}</span>
@@ -384,7 +393,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
             </div>
           )}
 
-          {isRecordingPayment && (
+          {isRecordingPayment && currentRes.status !== 'payment_pending' && (
             <form onSubmit={handleRecordPayment} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
               <span className="font-bold text-slate-800 block text-xs">Process Folio Payment</span>
               <div className="grid grid-cols-2 gap-2">
@@ -436,6 +445,51 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
 
         {/* Footer Operational Buttons */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          {currentRes.status === 'payment_pending' && (
+            <form
+              className="w-full space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setDepositError('');
+                setIsRecordingDeposit(true);
+                try {
+                  await recordReservationDeposit(
+                    currentRes, depositAmount, depositMethod, depositReference, depositNotes,
+                  );
+                  setDepositError('Deposit recorded and reservation confirmed.');
+                } catch (error) {
+                  setDepositError(error instanceof Error ? error.message : 'Could not record the deposit.');
+                } finally {
+                  setIsRecordingDeposit(false);
+                }
+              }}
+            >
+              <div>
+                <h3 className="text-sm font-bold text-amber-950">Deposit required before confirmation</h3>
+                <p className="mt-1 text-xs text-amber-800">Outstanding: {Math.max(0, currentRes.grandTotal - currentRes.amountPaid).toLocaleString()} ETB</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-slate-700">Deposit amount
+                  <input type="number" min="0.01" max={currentRes.grandTotal - currentRes.amountPaid} step="0.01" required value={depositAmount} onChange={(event) => setDepositAmount(Number(event.target.value))} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Tender method
+                  <select value={depositMethod} onChange={(event) => setDepositMethod(event.target.value as typeof depositMethod)} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5">
+                    <option value="CASH">Cash</option><option value="TELEBIRR">Telebirr</option><option value="CBE_BIRR">CBE Birr</option><option value="CARD">Card</option><option value="BANK_TRANSFER">Bank transfer</option>
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Receipt/reference
+                  <input value={depositReference} onChange={(event) => setDepositReference(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5" />
+                </label>
+                <label className="text-xs font-semibold text-slate-700">Notes
+                  <input value={depositNotes} onChange={(event) => setDepositNotes(event.target.value)} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5" />
+                </label>
+              </div>
+              {depositError && <p role="status" className="text-xs text-amber-900">{depositError}</p>}
+              <button type="submit" disabled={isRecordingDeposit || depositAmount <= 0} className="rounded bg-amber-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {isRecordingDeposit ? 'Recording deposit…' : 'Record deposit & confirm'}
+              </button>
+            </form>
+          )}
           {currentRes.status === 'confirmed' ? (
             <div className="flex items-center gap-2">
               <button
@@ -457,6 +511,17 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
                 Cancel Booking
               </button>
             </div>
+          ) : currentRes.status === 'payment_pending' ? (
+            <button
+              onClick={async () => {
+                if (window.confirm('Cancel this booking request? No deposit has been recorded.')) {
+                  if (await cancelReservation(currentRes.id)) onClose();
+                }
+              }}
+              className="px-3 py-2 text-rose-700 hover:bg-rose-50 text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              Cancel Unpaid Request
+            </button>
           ) : currentRes.status === 'checked_in' ? (
             <div className="flex items-center gap-2">
               <button

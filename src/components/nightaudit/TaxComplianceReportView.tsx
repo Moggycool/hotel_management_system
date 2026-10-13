@@ -1,30 +1,48 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ShieldCheck,
   Building2,
-  FileCheck2,
   CheckCircle2,
   Printer,
-  Download,
-  Percent,
-  Receipt,
   Scale,
   Landmark,
 } from 'lucide-react';
-import { useHotel } from '../../context/HotelContext';
+import { TaxComplianceReport, hotelApi } from '../../api/hotelApi';
 
 export const TaxComplianceReportView: React.FC = () => {
-  const { settings, nightAuditReports, getDailyFlashReport } = useHotel();
-  const flash = getDailyFlashReport();
+  const [report, setReport] = useState<TaxComplianceReport | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Aggregate historical tax collections
-  const totalHistoricalVat = nightAuditReports.reduce((sum, r) => sum + r.vatTotal, 0) + flash.vat15Percent;
-  const totalHistoricalSvc = nightAuditReports.reduce((sum, r) => sum + r.serviceChargeTotal, 0) + flash.serviceCharge;
-  const totalHistoricalGross = nightAuditReports.reduce((sum, r) => sum + r.grossRevenue, 0) + flash.grossRevenue;
+  useEffect(() => {
+    let isCurrent = true;
+    hotelApi.fetchTaxComplianceReportFromDjango()
+      .then((result) => {
+        if (isCurrent) setReport(result);
+      })
+      .catch((requestError) => {
+        if (isCurrent) setError(requestError instanceof Error ? requestError.message : 'Unable to load tax summary.');
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   const handlePrint = () => {
     window.print();
   };
+
+  if (isLoading) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600" role="status">Loading persisted tax summary...</div>;
+  }
+
+  if (error || !report) {
+    return <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900" role="alert">Tax summary unavailable: {error || 'The server returned no tax summary.'}</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -33,15 +51,14 @@ export const TaxComplianceReportView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-bold text-slate-900">
-              Ethiopian Ministry of Revenues (ERCA) Tax & Compliance
+              Tax Configuration & Audit Summary
             </h3>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              100% Tax Compliant
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+              Configuration: {report.configurationStatus}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Electronic Sales Register (ESR) certification and daily statutory tax accruals.
+            Property tax settings and totals from completed, persisted night-audit sessions.
           </p>
         </div>
 
@@ -50,7 +67,7 @@ export const TaxComplianceReportView: React.FC = () => {
           className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-black text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors self-start sm:self-auto"
         >
           <Printer className="w-3.5 h-3.5" />
-          Print Compliance Certificate
+          Print Tax Summary
         </button>
       </div>
 
@@ -64,19 +81,15 @@ export const TaxComplianceReportView: React.FC = () => {
             </span>
           </div>
           <h4 className="text-sm font-bold text-slate-900">
-            Arbaminch Tourist Hotel Enterprise
+            {report.taxpayerName || 'Property name not configured'}
           </h4>
           <div className="text-xs space-y-1 text-slate-600 pt-1">
             <div>
               <span className="font-semibold text-slate-700">TIN Number:</span>{' '}
-              <span className="font-mono text-slate-900 font-bold">0062819401</span>
+              <span className="font-mono text-slate-900 font-bold">{report.tinNumber || 'Not configured'}</span>
             </div>
             <div>
-              <span className="font-semibold text-slate-700">VAT Reg:</span>{' '}
-              <span className="font-mono text-slate-900 font-bold">VAT-ETH-992014</span>
-            </div>
-            <div>
-              <span className="font-semibold text-slate-700">Location:</span> Arbaminch, Gamo Zone, Ethiopia
+              <span className="font-semibold text-slate-700">Address:</span> {report.address || 'Not configured'}
             </div>
           </div>
         </div>
@@ -85,23 +98,19 @@ export const TaxComplianceReportView: React.FC = () => {
           <div className="flex items-center gap-2 text-emerald-700">
             <Landmark className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Banking & Digital Settlement
+              Digital Settlement Configuration
             </span>
           </div>
           <h4 className="text-sm font-bold text-slate-900">
-            Official Merchant Accounts
+            Configured Telebirr Details
           </h4>
           <div className="text-xs space-y-1 text-slate-600 pt-1">
             <div>
               <span className="font-semibold text-slate-700">Telebirr Merchant Short Code:</span>{' '}
-              <span className="font-mono text-emerald-800 font-bold">194022</span>
+              <span className="font-mono text-emerald-800 font-bold">{report.telebirrMerchantShortCode || 'Not configured'}</span>
             </div>
             <div>
-              <span className="font-semibold text-slate-700">CBE Corporate Account:</span>{' '}
-              <span className="font-mono text-indigo-900 font-bold">1000293847291</span>
-            </div>
-            <div>
-              <span className="font-semibold text-slate-700">Base Currency:</span> Ethiopian Birr (ETB)
+              <span className="font-semibold text-slate-700">Base Currency:</span> {report.currency}
             </div>
           </div>
         </div>
@@ -114,20 +123,16 @@ export const TaxComplianceReportView: React.FC = () => {
             </span>
           </div>
           <h4 className="text-sm font-bold text-slate-900">
-            Ethiopian Hospitality Tax Rules
+            Configured Property Rates
           </h4>
           <div className="text-xs space-y-1 text-slate-600 pt-1">
             <div className="flex justify-between">
               <span className="font-semibold text-slate-700">Value Added Tax (VAT):</span>
-              <span className="font-bold text-purple-900">15.0%</span>
+              <span className="font-bold text-purple-900">{report.vatRatePercent}%</span>
             </div>
             <div className="flex justify-between">
               <span className="font-semibold text-slate-700">Hotel Service Charge:</span>
-              <span className="font-bold text-indigo-900">10.0%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-semibold text-slate-700">ESR Certified Machine:</span>
-              <span className="font-bold text-emerald-700">Active</span>
+              <span className="font-bold text-indigo-900">{report.serviceChargeRatePercent}%</span>
             </div>
           </div>
         </div>
@@ -139,33 +144,33 @@ export const TaxComplianceReportView: React.FC = () => {
           <h4 className="text-sm font-bold text-slate-900">
             Tax Ledger & Revenue Accrual Matrix
           </h4>
-          <span className="text-xs text-slate-500">Current Business Date: {settings.businessDate}</span>
+          <span className="text-xs text-slate-500">Completed audit sessions: {report.completedSessions}</span>
         </div>
 
         <div className="p-5">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 block">Total Audited Gross Revenue</span>
+              <span className="text-xs text-slate-500 block">Gross Revenue in Completed Audits</span>
               <span className="text-xl font-bold text-slate-900 mt-1 block">
-                {Math.round(totalHistoricalGross).toLocaleString()} ETB
+                {report.grossRevenue.toLocaleString()} {report.currency}
               </span>
-              <span className="text-[11px] text-slate-400 mt-1 block">All audited cycles</span>
+              <span className="text-[11px] text-slate-400 mt-1 block">{report.completedSessions} completed sessions</span>
             </div>
 
             <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
-              <span className="text-xs text-purple-700 block font-semibold">Accumulated VAT (15% ERCA)</span>
+              <span className="text-xs text-purple-700 block font-semibold">VAT in Completed Audits ({report.vatRatePercent}%)</span>
               <span className="text-xl font-bold text-purple-950 mt-1 block">
-                {Math.round(totalHistoricalVat).toLocaleString()} ETB
+                {report.vatTotal.toLocaleString()} {report.currency}
               </span>
-              <span className="text-[11px] text-purple-800 mt-1 block">Payable to Ministry of Revenues</span>
+              <span className="text-[11px] text-purple-800 mt-1 block">Sum of persisted closed-session VAT</span>
             </div>
 
             <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200">
-              <span className="text-xs text-indigo-700 block font-semibold">Service Charge Pool (10%)</span>
+              <span className="text-xs text-indigo-700 block font-semibold">Service Charge in Completed Audits ({report.serviceChargeRatePercent}%)</span>
               <span className="text-xl font-bold text-indigo-950 mt-1 block">
-                {Math.round(totalHistoricalSvc).toLocaleString()} ETB
+                {report.serviceChargeTotal.toLocaleString()} {report.currency}
               </span>
-              <span className="text-[11px] text-indigo-800 mt-1 block">Disbursed to hotel staff</span>
+              <span className="text-[11px] text-indigo-800 mt-1 block">Sum of persisted closed-session service charge</span>
             </div>
           </div>
 
@@ -174,15 +179,15 @@ export const TaxComplianceReportView: React.FC = () => {
               <ShieldCheck className="w-8 h-8 text-emerald-400 shrink-0" />
               <div>
                 <span className="font-bold text-sm text-white block">
-                  ERCA Electronic Sales Register Compliance Certified
+                  Scope of this summary
                 </span>
                 <p className="text-slate-300 text-[11px] mt-0.5">
-                  All guest folios, restaurant bills, and night audit closures automatically generate compliant tax invoices with hotel TIN, VAT registration, and customer Telebirr references.
+                  Shows configured property tax rates and persisted completed-audit totals. This report does not verify external tax filings or Electronic Sales Register certification.
                 </p>
               </div>
             </div>
             <div className="shrink-0 font-mono text-emerald-400 bg-slate-950 px-3 py-1.5 rounded border border-slate-800 text-[11px] font-bold">
-              SYSTEM STATUS: COMPLIANT
+              {report.configurationStatus}
             </div>
           </div>
         </div>

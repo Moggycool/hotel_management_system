@@ -24,7 +24,7 @@ class Guest(models.Model):
     phone_number = models.CharField(max_length=25, db_index=True)
     id_type = models.CharField(
         max_length=20, choices=IDType.choices, default=IDType.FAYDA)
-    id_number = models.CharField(max_length=50, db_index=True)
+    id_number = models.CharField(max_length=50, db_index=True, blank=True)
     nationality = models.CharField(max_length=50, default='Ethiopian')
     vip_tier = models.CharField(
         max_length=15, choices=VIPTier.choices, default=VIPTier.REGULAR)

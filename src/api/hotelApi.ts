@@ -1,4 +1,4 @@
-import { DailyFlashReportData, Guest, HousekeepingTask, HotelSettings, MenuItem, NightAuditReport, OrderItem, RestaurantOrder, Reservation, Room, StaffRole } from '../types/hotel';
+import { CashierShiftRecord, DailyFlashReportData, Guest, HousekeepingTask, HotelSettings, MenuItem, NightAuditReport, OrderItem, RestaurantOrder, Reservation, Room, StaffRole } from '../types/hotel';
 
 export interface AuthenticatedStaff {
   id: string;
@@ -127,6 +127,54 @@ export interface ReservationTransitionResult {
   actual_check_out_time?: string | null;
 }
 
+export interface PublicBookingInfo {
+  propertyName: string;
+  nameAmharic: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  email: string;
+  currency: string;
+  checkInTime: string;
+  checkOutTime: string;
+  vatRate: number;
+  serviceChargeRate: number;
+  ratePlan: null | {
+    id: string;
+    name: string;
+    multiplier: number;
+    fixedSurcharge: number;
+  };
+}
+
+export interface PublicBookingQuote {
+  roomId: string;
+  roomType: string;
+  nights: number;
+  nightlyRate: number;
+  roomSubtotal: number;
+  serviceCharge: number;
+  vat: number;
+  grandTotal: number;
+  currency: string;
+  ratePlan: string;
+}
+
+export interface PublicBookingResult {
+  success: boolean;
+  depositRequiredEtb: string;
+  paymentDueAtProperty: boolean;
+  reservation: {
+    id: string;
+    confirmation_code: string;
+    check_in_date: string;
+    check_out_date: string;
+    room_number_display: string;
+    guest_name_display: string;
+    grand_total_etb: string;
+  };
+}
+
 function mapBackendRoom(record: any): Room {
   const uiRoomTypes: Record<string, Room['type']> = {
     'Deluxe Lake Chamo View': 'Deluxe Ocean View',
@@ -169,7 +217,7 @@ function mapBackendReservation(record: any): Reservation {
   };
   const statuses: Record<string, Reservation['status']> = {
     DRAFT: 'confirmed',
-    PAYMENT_PENDING: 'confirmed',
+    PAYMENT_PENDING: 'payment_pending',
     CONFIRMED: 'confirmed',
     CHECKED_IN: 'checked_in',
     CHECKED_OUT: 'checked_out',
@@ -336,6 +384,15 @@ function mapBackendNightAuditReport(record: any): NightAuditReport {
 
 export interface BackendDailyFlashReport {
   report: DailyFlashReportData;
+  property: {
+    name: string;
+    tinNumber: string;
+    address: string;
+    currency: string;
+    telebirrMerchantShortCode: string;
+    vatRatePercent: number;
+    serviceChargeRatePercent: number;
+  };
   settlements: {
     telebirr: number;
     cash: number;
@@ -347,6 +404,42 @@ export interface BackendDailyFlashReport {
 export interface NightAuditExecutionResult {
   report: NightAuditReport;
   alreadyClosed: boolean;
+}
+
+export interface TaxComplianceReport {
+  taxpayerName: string;
+  tinNumber: string;
+  address: string;
+  telebirrMerchantShortCode: string;
+  currency: string;
+  vatRatePercent: number;
+  serviceChargeRatePercent: number;
+  configurationStatus: string;
+  completedSessions: number;
+  grossRevenue: number;
+  vatTotal: number;
+  serviceChargeTotal: number;
+}
+
+function mapBackendCashierShift(record: any): CashierShiftRecord {
+  return {
+    id: String(record.id),
+    shiftName: record.shift_name,
+    cashierName: record.cashier_name,
+    cashierRole: record.cashier_role,
+    businessDate: String(record.business_date).slice(0, 10),
+    openingFloat: Number(record.opening_float || 0),
+    cashCollected: Number(record.cash_collected || 0),
+    telebirrCollected: Number(record.telebirr_collected || 0),
+    cbeCardCollected: Number(record.cbe_card_collected || 0),
+    bankTransferCollected: Number(record.bank_transfer_collected || 0),
+    actualClosingCash: Number(record.actual_closing_cash || 0),
+    discrepancy: Number(record.discrepancy || 0),
+    status: record.status === 'CLOSED' ? 'closed' : 'open',
+    openedAt: String(record.opened_at || '').replace('T', ' ').slice(0, 19),
+    closedAt: record.closed_at ? String(record.closed_at).replace('T', ' ').slice(0, 19) : undefined,
+    handoverNotes: record.handover_notes || '',
+  };
 }
 
 function mapBackendRestaurantOrder(record: any): RestaurantOrder {
@@ -745,6 +838,201 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
+  async fetchPublicAvailableRoomsFromDjango(checkIn: string, checkOut: string): Promise<Room[]> {
+    let lastError = 'The hotel booking service is unavailable.';
+    const query = new URLSearchParams({ check_in: checkIn, check_out: checkOut });
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/public-availability/?${query}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) {
+            return records.map((record: any) => mapBackendRoom({
+              ...record,
+              room_number: '',
+              floor: 0,
+              status: 'VACANT_CLEAN',
+              housekeeping_status: 'CLEAN',
+              notes: '',
+            }));
+          }
+          lastError = 'The hotel server returned an invalid public availability response.';
+        } else {
+          lastError = payload.detail || `Hotel server returned HTTP ${response.status}.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchPublicBookingInfo(): Promise<PublicBookingInfo> {
+    let lastError = 'The hotel booking service is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/public-info/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const rate = payload.rate_plan;
+          return {
+            propertyName: payload.property_name || 'Hotel',
+            nameAmharic: payload.name_amharic || '',
+            tagline: payload.tagline || '',
+            address: payload.address || '',
+            phone: payload.phone || '',
+            email: payload.email || '',
+            currency: payload.currency || 'ETB',
+            checkInTime: payload.check_in_time || '14:00',
+            checkOutTime: payload.check_out_time || '11:00',
+            vatRate: Number(payload.vat_rate || 0),
+            serviceChargeRate: Number(payload.service_charge_rate || 0),
+            ratePlan: rate ? {
+              id: String(rate.id),
+              name: rate.name,
+              multiplier: Number(rate.multiplier),
+              fixedSurcharge: Number(rate.fixed_surcharge_etb),
+            } : null,
+          };
+        }
+        lastError = payload.detail || `Hotel server returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchPublicBookingQuote(input: {
+    roomId: string;
+    checkIn: string;
+    checkOut: string;
+    adults: number;
+    children: number;
+  }): Promise<PublicBookingQuote> {
+    const query = new URLSearchParams({
+      room_id: input.roomId,
+      check_in: input.checkIn,
+      check_out: input.checkOut,
+      adults: String(input.adults),
+      children: String(input.children),
+    });
+    let lastError = 'Unable to calculate a booking quote.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/public-quote/?${query}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return {
+            roomId: String(payload.room_id),
+            roomType: payload.room_type,
+            nights: Number(payload.nights),
+            nightlyRate: Number(payload.nightly_rate_etb),
+            roomSubtotal: Number(payload.room_subtotal_etb),
+            serviceCharge: Number(payload.service_charge_etb),
+            vat: Number(payload.vat_etb),
+            grandTotal: Number(payload.grand_total_etb),
+            currency: payload.currency || 'ETB',
+            ratePlan: payload.rate_plan,
+          };
+        }
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createPublicBooking(input: {
+    roomId: string;
+    checkIn: string;
+    checkOut: string;
+    adults: number;
+    children: number;
+    guestName: string;
+    guestEmail: string;
+    guestPhone: string;
+    nationality: string;
+    specialRequests: string;
+    privacyConsent: boolean;
+  }): Promise<PublicBookingResult> {
+    const body = {
+      room_id: input.roomId,
+      check_in_date: input.checkIn,
+      check_out_date: input.checkOut,
+      adults: input.adults,
+      children: input.children,
+      guest_name: input.guestName,
+      guest_email: input.guestEmail,
+      guest_phone: input.guestPhone,
+      nationality: input.nationality,
+      special_requests: input.specialRequests,
+      privacy_consent: input.privacyConsent,
+    };
+    let lastError = 'Unable to complete the booking.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/public-booking/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return {
+            success: Boolean(payload.success),
+            depositRequiredEtb: String(payload.deposit_required_etb || payload.reservation.grand_total_etb),
+            paymentDueAtProperty: Boolean(payload.payment_due_at_property),
+            reservation: payload.reservation,
+          };
+        }
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async recordReservationDeposit(input: {
+    confirmationCode: string;
+    amount: number;
+    method: 'CASH' | 'TELEBIRR' | 'CBE_BIRR' | 'CARD' | 'BANK_TRANSFER';
+    reference: string;
+    notes: string;
+  }): Promise<void> {
+    let lastError = 'Unable to record the reservation deposit.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/record-deposit/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            confirmation_code: input.confirmationCode,
+            amount: input.amount.toFixed(2),
+            method: input.method,
+            reference: input.reference,
+            notes: input.notes,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return;
+        lastError = result.detail || JSON.stringify(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
   async fetchReservationsFromDjango(): Promise<Reservation[]> {
     let lastError = 'Django backend is unavailable.';
 
@@ -882,6 +1170,113 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
+  async fetchTaxComplianceReportFromDjango(): Promise<TaxComplianceReport> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reporting/night-audit/tax-compliance/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading tax configuration.`;
+          continue;
+        }
+
+        const taxRates = payload.tax_rates || {};
+        const auditTotals = payload.audit_totals || {};
+        return {
+          taxpayerName: payload.taxpayer_name || '',
+          tinNumber: payload.tin_number || '',
+          address: payload.address || '',
+          telebirrMerchantShortCode: payload.telebirr_merchant_short_code || '',
+          currency: payload.currency || 'ETB',
+          vatRatePercent: Number(taxRates.vat_rate_percent || 0),
+          serviceChargeRatePercent: Number(taxRates.service_charge_rate_percent || 0),
+          configurationStatus: payload.compliance_status || 'UNKNOWN',
+          completedSessions: Number(auditTotals.completed_sessions || 0),
+          grossRevenue: Number(auditTotals.gross_revenue_etb || 0),
+          vatTotal: Number(auditTotals.vat_etb || 0),
+          serviceChargeTotal: Number(auditTotals.service_charge_etb || 0),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load tax configuration from Django.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchCashierShiftsFromDjango(): Promise<CashierShiftRecord[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/billing/shifts/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records.map(mapBackendCashierShift);
+          lastError = 'Django returned an invalid cashier-shift list.';
+        } else {
+          lastError = payload.detail || `Django returned HTTP ${response.status} while loading cashier shifts.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to load cashier shifts.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async openCashierShiftInDjango(
+    shiftName: CashierShiftRecord['shiftName'],
+    openingFloat: number,
+  ): Promise<CashierShiftRecord> {
+    return this.requestCashierShift(
+      '/open/',
+      'POST',
+      { shift_name: shiftName, opening_float: openingFloat.toFixed(2) },
+    );
+  },
+
+  async closeCashierShiftInDjango(
+    shiftId: string,
+    actualClosingCash: number,
+    handoverNotes: string,
+  ): Promise<CashierShiftRecord> {
+    return this.requestCashierShift(
+      `/${encodeURIComponent(shiftId)}/close/`,
+      'POST',
+      { actual_closing_cash: actualClosingCash.toFixed(2), handover_notes: handoverNotes },
+    );
+  },
+
+  async requestCashierShift(
+    path: string,
+    method: 'POST',
+    body: Record<string, unknown>,
+  ): Promise<CashierShiftRecord> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/billing/shifts${path}`, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendCashierShift(result);
+        lastError = typeof result === 'object' ? JSON.stringify(result) : String(result);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Cashier shift request failed.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
   async fetchDailyFlashReportFromDjango(date: string): Promise<BackendDailyFlashReport> {
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {
@@ -905,16 +1300,26 @@ export const hotelApi = {
         const bankTransfer = Number(settlements.bank_transfer_etb || 0);
         const totalRooms = Number(kpis.total_rooms || 0);
         const occupiedRooms = Number(kpis.occupied_rooms || 0);
+        const taxRates = payload.tax_rates || {};
 
         return {
+          property: {
+            name: payload.property_name || '',
+            tinNumber: payload.tin_number || '',
+            address: payload.address || '',
+            currency: payload.currency || 'ETB',
+            telebirrMerchantShortCode: payload.telebirr_merchant_short_code || '',
+            vatRatePercent: Number(taxRates.vat_rate_percent || 0),
+            serviceChargeRatePercent: Number(taxRates.service_charge_rate_percent || 0),
+          },
           report: {
             businessDate: String(payload.business_date || date).slice(0, 10),
             occupancyRate: Number(kpis.occupancy_rate || 0),
             totalRooms,
             occupiedRooms,
             availableRooms: Math.max(0, totalRooms - occupiedRooms),
-            arrivalsToday: 0,
-            departuresToday: 0,
+            arrivalsToday: Number(kpis.arrivals_today || 0),
+            departuresToday: Number(kpis.departures_today || 0),
             adr: Number(kpis.adr_etb || 0),
             revpar: Number(kpis.revpar_etb || 0),
             roomRevenue: Number(revenue.rooms_etb || 0),
@@ -1737,7 +2142,7 @@ export const hotelApi = {
         phone_number: payload.guest_phone || '+251 91 123 4567',
         email: payload.guest_email || `${payload.guest_name.toLowerCase().replace(/\s+/g, '.')}@example.et`,
         id_type: payload.id_type || 'FAYDA',
-        id_number: payload.id_number || `FAN-9901-${Math.floor(1000 + Math.random() * 9000)}`,
+        id_number: payload.id_number || '',
         nationality: 'Ethiopian',
         vip_tier: 'Regular',
         total_stays: 1,

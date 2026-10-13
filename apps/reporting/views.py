@@ -258,6 +258,16 @@ class NightAuditViewSet(viewsets.ReadOnlyModelViewSet):
             check_in_date__lte=business_date,
             check_out_date__gt=business_date,
         ).values('room_id').distinct().count()
+        arrivals_today = Reservation.objects.filter(
+            check_in_date=business_date,
+            status__in=[ReservationStatus.CONFIRMED,
+                        ReservationStatus.CHECKED_IN],
+        ).count()
+        departures_today = Reservation.objects.filter(
+            check_out_date=business_date,
+            status__in=[ReservationStatus.CHECKED_IN,
+                        ReservationStatus.CHECKED_OUT],
+        ).count()
         daily_items = FolioItem.objects.filter(posted_at__date=business_date)
         room_revenue = daily_items.filter(category='ROOM').aggregate(
             total=Sum('amount'))['total'] or Decimal('0.00')
@@ -287,10 +297,19 @@ class NightAuditViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({
             'property_name': property_config.name if property_config else '',
             'tin_number': property_config.tin_number if property_config else '',
+            'address': property_config.address if property_config else '',
+            'currency': property_config.currency if property_config else 'ETB',
+            'telebirr_merchant_short_code': property_config.telebirr_short_code if property_config else '',
+            'tax_rates': {
+                'vat_rate_percent': float(vat_rate * 100),
+                'service_charge_rate_percent': float(service_rate * 100),
+            },
             'business_date': str(business_date),
             'kpis': {
                 'total_rooms': total_rooms,
                 'occupied_rooms': occupied_rooms,
+                'arrivals_today': arrivals_today,
+                'departures_today': departures_today,
                 'occupancy_rate': round(occupied_rooms / total_rooms * 100, 1) if total_rooms else 0,
                 'adr_etb': round(float(room_revenue / occupied_rooms), 2) if occupied_rooms else 0,
                 'revpar_etb': round(float(room_revenue / total_rooms), 2) if total_rooms else 0,
@@ -319,14 +338,28 @@ class NightAuditViewSet(viewsets.ReadOnlyModelViewSet):
         property_config = Property.objects.order_by('created_at').first()
         if property_config is None:
             return Response({'detail': 'Property configuration is not initialized.'}, status=status.HTTP_404_NOT_FOUND)
+        completed_audits = NightAuditSession.objects.filter(
+            status=AuditSessionStatus.COMPLETED)
+        audit_totals = completed_audits.aggregate(
+            gross_revenue=Sum('gross_revenue_etb'),
+            vat=Sum('vat_etb'),
+            service_charge=Sum('service_charge_etb'),
+        )
         return Response({
             'taxpayer_name': property_config.name,
             'tin_number': property_config.tin_number,
+            'address': property_config.address,
             'telebirr_merchant_short_code': property_config.telebirr_short_code,
             'currency': property_config.currency,
             'tax_rates': {
                 'vat_rate_percent': float(property_config.vat_rate * 100),
                 'service_charge_rate_percent': float(property_config.service_charge_rate * 100),
+            },
+            'audit_totals': {
+                'completed_sessions': completed_audits.count(),
+                'gross_revenue_etb': f"{audit_totals['gross_revenue'] or Decimal('0.00'):.2f}",
+                'vat_etb': f"{audit_totals['vat'] or Decimal('0.00'):.2f}",
+                'service_charge_etb': f"{audit_totals['service_charge'] or Decimal('0.00'):.2f}",
             },
             'compliance_status': 'CONFIGURED',
         })

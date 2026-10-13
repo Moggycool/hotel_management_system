@@ -92,7 +92,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   const [idNumber, setIdNumber] = useState('');
 
   // Payment
-  const [paymentOption, setPaymentOption] = useState<'full' | 'deposit' | 'arrival'>('full');
+  const [paymentOption, setPaymentOption] = useState<'full' | 'deposit'>('full');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('telebirr');
   const [customDeposit, setCustomDeposit] = useState<number>(1500);
   const [directCheckIn, setDirectCheckIn] = useState(false);
@@ -163,6 +163,10 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
     e.preventDefault();
     if (!guestName || !guestEmail || !selectedRoomId) {
       alert('Please complete all required fields.');
+      return;
+    }
+    if (initialDepositAmount <= 0) {
+      alert('A positive deposit is required before confirming this reservation.');
       return;
     }
     if (isLoadingAvailability || availabilityError || !availableRooms.some((room) => room.id === selectedRoomId)) {
@@ -563,7 +567,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
               <label className="text-[11px] font-bold text-slate-300 block uppercase tracking-wider">
                 Initial Payment / Guarantee
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setPaymentOption('full')}
@@ -586,21 +590,15 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
                 >
                   Deposit (${customDeposit})
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentOption('arrival')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    paymentOption === 'arrival'
-                      ? 'bg-indigo-600 text-white border-indigo-500'
-                      : 'bg-slate-800 text-slate-300 border-slate-700'
-                  }`}
-                >
-                  Pay on Arrival ($0)
-                </button>
               </div>
 
-              {paymentOption !== 'arrival' && (
+              {paymentOption === 'deposit' && (
                 <div className="flex items-center gap-2 pt-2">
+                  <label className="text-slate-300 text-[11px]">Deposit amount:</label>
+                  <input type="number" min="0.01" max={grandTotal} step="0.01" value={customDeposit} onChange={(event) => setCustomDeposit(Number(event.target.value))} className="w-28 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white" />
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-2">
                   <span className="text-slate-400 text-[11px]">Method:</span>
                   <select
                     value={paymentMethod}
@@ -613,8 +611,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
                     <option value="bank_transfer">Direct Bank Wire / Transfer</option>
                     <option value="credit_card">International Credit Card (Visa/Mastercard)</option>
                   </select>
-                </div>
-              )}
+              </div>
             </div>
           </div>
 

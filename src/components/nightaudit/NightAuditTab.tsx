@@ -43,6 +43,8 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
     settings,
     nightAuditReports,
     cashierShifts,
+    cashierShiftsLoading,
+    cashierShiftsError,
     currentRole,
     setCurrentRole,
     reservations,
@@ -423,12 +425,24 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
 
             <button
               onClick={() => setShiftModalState({ isOpen: true, mode: 'open', shift: null })}
+              disabled={cashierShiftsLoading || Boolean(cashierShiftsError)}
               className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-colors self-start sm:self-auto"
             >
               <PlusCircle className="w-4 h-4" />
               Open New Shift Drawer
             </button>
           </div>
+
+          {cashierShiftsLoading && (
+            <div role="status" className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+              Loading persisted cashier shifts...
+            </div>
+          )}
+          {cashierShiftsError && (
+            <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Cashier shifts are unavailable: {cashierShiftsError}
+            </div>
+          )}
 
           {/* Active Shift Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -470,7 +484,7 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-100 text-xs">
                         <div className="p-2.5 rounded-xl bg-slate-50">
                           <span className="text-slate-400 block text-[11px]">Opening Float</span>
                           <span className="font-bold text-slate-800 text-sm mt-0.5 block">
@@ -493,6 +507,12 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
                           <span className="text-indigo-700 block text-[11px]">CBE Cards</span>
                           <span className="font-bold text-indigo-950 text-sm mt-0.5 block">
                             {shift.cbeCardCollected.toLocaleString()} ETB
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-100">
+                          <span className="text-slate-600 block text-[11px]">Bank Transfer</span>
+                          <span className="font-bold text-slate-900 text-sm mt-0.5 block">
+                            {shift.bankTransferCollected.toLocaleString()} ETB
                           </span>
                         </div>
                       </div>
@@ -529,6 +549,8 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
                     <th className="py-3 px-4 text-right">Opening Float</th>
                     <th className="py-3 px-4 text-right">Cash In</th>
                     <th className="py-3 px-4 text-right">Telebirr</th>
+                    <th className="py-3 px-4 text-right">CBE / Card</th>
+                    <th className="py-3 px-4 text-right">Bank Transfer</th>
                     <th className="py-3 px-4 text-right">Actual Count</th>
                     <th className="py-3 px-4 text-center">Discrepancy</th>
                     <th className="py-3 px-4">Closed At</th>
@@ -560,6 +582,12 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
                       </td>
                       <td className="py-3 px-4 text-right text-emerald-700 font-semibold">
                         {shift.telebirrCollected.toLocaleString()} ETB
+                      </td>
+                      <td className="py-3 px-4 text-right text-indigo-700 font-semibold">
+                        {shift.cbeCardCollected.toLocaleString()} ETB
+                      </td>
+                      <td className="py-3 px-4 text-right text-slate-700 font-semibold">
+                        {shift.bankTransferCollected.toLocaleString()} ETB
                       </td>
                       <td className="py-3 px-4 text-right font-bold text-slate-900">
                         {shift.status === 'closed' ? `${shift.actualClosingCash.toLocaleString()} ETB` : '-'}

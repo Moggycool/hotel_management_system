@@ -26,3 +26,20 @@ class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
         fields = '__all__'
+
+
+class PublicRoomTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoomType
+        fields = [
+            'name', 'description', 'base_price_etb', 'max_adults',
+            'max_children', 'bed_type', 'size_sqm', 'amenities',
+        ]
+
+
+class PublicAvailableRoomSerializer(serializers.ModelSerializer):
+    room_type = PublicRoomTypeSerializer(read_only=True)
+
+    class Meta:
+        model = Room
+        fields = ['id', 'room_type']

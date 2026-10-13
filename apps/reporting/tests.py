@@ -120,6 +120,9 @@ def test_restaurant_revenue_is_not_taxed_twice_in_reports():
     )
     Property.objects.create(
         name='F&B Audit Hotel',
+        tin_number='TIN-FB-001',
+        telebirr_short_code='998877',
+        address='Arba Minch',
         vat_rate=Decimal('0.1500'),
         service_charge_rate=Decimal('0.1000'),
     )
@@ -148,6 +151,16 @@ def test_restaurant_revenue_is_not_taxed_twice_in_reports():
     assert flash_revenue['service_charge_etb'] == 10.0
     assert flash_revenue['vat_15_percent_etb'] == 16.5
     assert flash_revenue['gross_total_etb'] == 126.5
+    assert flash_response.data['property_name'] == 'F&B Audit Hotel'
+    assert flash_response.data['tin_number'] == 'TIN-FB-001'
+    assert flash_response.data['address'] == 'Arba Minch'
+    assert flash_response.data['telebirr_merchant_short_code'] == '998877'
+    assert flash_response.data['tax_rates'] == {
+        'vat_rate_percent': 15.0,
+        'service_charge_rate_percent': 10.0,
+    }
+    assert flash_response.data['kpis']['arrivals_today'] == 0
+    assert flash_response.data['kpis']['departures_today'] == 0
 
     close_response = client.post(
         '/api/v1/reporting/night-audit/execute/',
@@ -160,3 +173,68 @@ def test_restaurant_revenue_is_not_taxed_twice_in_reports():
     assert session.service_charge_etb == Decimal('10.00')
     assert session.vat_etb == Decimal('16.50')
     assert session.gross_revenue_etb == Decimal('126.50')
+
+
+@pytest.mark.django_db
+def test_tax_compliance_report_uses_property_and_completed_audit_totals():
+    auditor = User.objects.create_user(
+        email='audit-tax@example.et',
+        password='StrongPassword#2026',
+        full_name='Tax Auditor',
+        role=StaffRole.GENERAL_MANAGER,
+    )
+    Property.objects.create(
+        name='Configured Tax Hotel',
+        tin_number='TIN-TAX-002',
+        address='Tax Street, Arba Minch',
+        telebirr_short_code='112233',
+        vat_rate=Decimal('0.1200'),
+        service_charge_rate=Decimal('0.0800'),
+    )
+    business_date = timezone.localdate()
+    NightAuditSession.objects.create(
+        business_date=business_date - timedelta(days=2),
+        next_business_date=business_date - timedelta(days=1),
+        status=AuditSessionStatus.COMPLETED,
+        vat_etb=Decimal('12.00'),
+        service_charge_etb=Decimal('8.00'),
+        gross_revenue_etb=Decimal('120.00'),
+    )
+    NightAuditSession.objects.create(
+        business_date=business_date - timedelta(days=1),
+        next_business_date=business_date,
+        status=AuditSessionStatus.COMPLETED,
+        vat_etb=Decimal('18.00'),
+        service_charge_etb=Decimal('12.00'),
+        gross_revenue_etb=Decimal('180.00'),
+    )
+    NightAuditSession.objects.create(
+        business_date=business_date,
+        next_business_date=business_date + timedelta(days=1),
+        status=AuditSessionStatus.REOPENED,
+        vat_etb=Decimal('99.00'),
+        service_charge_etb=Decimal('99.00'),
+        gross_revenue_etb=Decimal('999.00'),
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=auditor)
+    response = client.get('/api/v1/reporting/night-audit/tax-compliance/')
+
+    assert response.status_code == 200
+    assert response.data['taxpayer_name'] == 'Configured Tax Hotel'
+    assert response.data['tin_number'] == 'TIN-TAX-002'
+    assert response.data['address'] == 'Tax Street, Arba Minch'
+    assert response.data['telebirr_merchant_short_code'] == '112233'
+    assert response.data['currency'] == 'ETB'
+    assert response.data['tax_rates'] == {
+        'vat_rate_percent': 12.0,
+        'service_charge_rate_percent': 8.0,
+    }
+    assert response.data['audit_totals'] == {
+        'completed_sessions': 2,
+        'gross_revenue_etb': '300.00',
+        'vat_etb': '30.00',
+        'service_charge_etb': '20.00',
+    }
+    assert response.data['compliance_status'] == 'CONFIGURED'

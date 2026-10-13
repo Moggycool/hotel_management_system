@@ -1,15 +1,29 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from django.utils.dateparse import parse_date
+from django.utils import timezone
 
 from apps.rooms.models import RatePlan, Room, RoomType
-from apps.rooms.serializers import RatePlanSerializer, RoomSerializer, RoomTypeSerializer
+from apps.rooms.serializers import (
+    PublicAvailableRoomSerializer,
+    RatePlanSerializer,
+    RoomSerializer,
+    RoomTypeSerializer,
+)
 from apps.rooms.services import AvailabilityEngine
 from apps.accounts.permissions import IsFrontOfficeStaff, IsGeneralManager
 from apps.audit.mixins import AuditedModelViewSetMixin
 from apps.audit.models import AuditModule
+
+
+class PublicAvailabilityThrottle(AnonRateThrottle):
+    rate = '60/minute'
+
+    def get_rate(self):
+        return self.rate
 
 
 class RoomTypeViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
@@ -45,9 +59,16 @@ class RoomViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
     audit_name = 'ROOM'
     audit_fields = ('id', 'room_number', 'status', 'housekeeping_status')
 
+    def get_throttles(self):
+        if self.action == 'public_availability':
+            return [PublicAvailabilityThrottle()]
+        return super().get_throttles()
+
     def get_permissions(self):
-        permission_class = IsAuthenticated if self.action in [
-            'list', 'retrieve', 'availability'] else IsFrontOfficeStaff
+        permission_class = AllowAny if self.action == 'public_availability' else (
+            IsAuthenticated if self.action in ['list', 'retrieve', 'availability']
+            else IsFrontOfficeStaff
+        )
         return [permission_class()]
 
     @action(detail=False, methods=['get'], url_path='availability')
@@ -68,3 +89,21 @@ class RoomViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         available_rooms = AvailabilityEngine.get_available_rooms(
             check_in, check_out)
         return Response(RoomSerializer(available_rooms, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='public-availability')
+    def public_availability(self, request):
+        check_in = parse_date(request.query_params.get('check_in', ''))
+        check_out = parse_date(request.query_params.get('check_out', ''))
+        if not check_in or not check_out:
+            return Response(
+                {'detail': 'Provide valid check_in and check_out dates in YYYY-MM-DD format.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if check_in < timezone.localdate() or check_in >= check_out:
+            return Response(
+                {'detail': 'Arrival cannot be in the past and check-out must be after check-in.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        rooms = AvailabilityEngine.get_available_rooms(
+            check_in, check_out).filter(housekeeping_status='CLEAN')
+        return Response(PublicAvailableRoomSerializer(rooms, many=True).data)

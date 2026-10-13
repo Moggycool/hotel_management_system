@@ -1,18 +1,163 @@
 import uuid
 from decimal import Decimal
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from apps.accounts.models import StaffRole
 from apps.accounts.permissions import IsFinanceStaff, IsFrontOfficeStaff
 from apps.audit.mixins import AuditedModelViewSetMixin
 from apps.audit.models import AuditModule
 from apps.audit.services import log_audit_event
+from apps.properties.models import Property
 
-from .models import Folio, FolioItem, Payment
-from .serializers import FolioSerializer, FolioItemSerializer, PaymentSerializer, TelebirrInitiateSerializer
+from .models import CashierShift, Folio, FolioItem, Payment
+from .serializers import (
+    CashierShiftSerializer,
+    CloseCashierShiftSerializer,
+    FolioSerializer,
+    FolioItemSerializer,
+    OpenCashierShiftSerializer,
+    PaymentSerializer,
+    TelebirrInitiateSerializer,
+)
+from .services.cashier_shifts import get_shift_collection_totals
 from .services.telebirr import MockTelebirrService
+
+
+class CashierShiftViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = CashierShift.objects.select_related(
+        'cashier', 'closed_by').all()
+    serializer_class = CashierShiftSerializer
+    permission_classes = [IsFrontOfficeStaff | IsFinanceStaff]
+
+    @action(detail=False, methods=['post'], url_path='open')
+    def open_shift(self, request):
+        serializer = OpenCashierShiftSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        property_config = Property.objects.order_by('created_at').first()
+        business_date = (
+            property_config.current_business_date
+            if property_config else timezone.localdate()
+        )
+        shift_name = serializer.validated_data['shift_name']
+        try:
+            with transaction.atomic():
+                if CashierShift.objects.select_for_update().filter(
+                    business_date=business_date,
+                    shift_name=shift_name,
+                ).exists():
+                    return Response(
+                        {'detail': 'This shift slot already has a record for the business date.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                shift = CashierShift.objects.create(
+                    business_date=business_date,
+                    shift_name=shift_name,
+                    cashier=request.user,
+                    cashier_name=request.user.full_name,
+                    cashier_role=request.user.get_role_display(),
+                    opening_float=serializer.validated_data['opening_float'],
+                )
+                log_audit_event(
+                    module=AuditModule.FOLIO,
+                    action='CASHIER_SHIFT_OPENED',
+                    details=f'{request.user.full_name} opened {shift.shift_name} for {business_date} with an opening float of {shift.opening_float} ETB.',
+                    request=request,
+                    after_state={
+                        'shift_id': str(shift.pk),
+                        'business_date': str(business_date),
+                        'shift_name': shift.shift_name,
+                        'cashier_id': str(request.user.pk),
+                        'opening_float': str(shift.opening_float),
+                    },
+                )
+        except IntegrityError:
+            return Response(
+                {'detail': 'This shift slot already has a record for the business date.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(CashierShiftSerializer(shift).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close_shift(self, request, pk=None):
+        serializer = CloseCashierShiftSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        manager_roles = {
+            StaffRole.GENERAL_MANAGER,
+            StaffRole.FRONT_OFFICE_MANAGER,
+            StaffRole.FINANCE_OFFICER,
+            StaffRole.SYSTEM_ADMIN,
+        }
+        with transaction.atomic():
+            shift = get_object_or_404(
+                CashierShift.objects.select_for_update(), pk=pk)
+            if shift.status != 'OPEN':
+                return Response(
+                    {'detail': 'This cashier shift is already closed.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if shift.cashier_id != request.user.pk and not (
+                request.user.is_superuser or request.user.role in manager_roles
+            ):
+                return Response(
+                    {'detail': 'Only the assigned cashier or an authorized manager may close this shift.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            closed_at = timezone.now()
+            totals = get_shift_collection_totals(
+                shift.cashier, shift.opened_at, closed_at)
+            actual_cash = serializer.validated_data['actual_closing_cash']
+            discrepancy = actual_cash - \
+                shift.opening_float - totals['cash_collected']
+            notes = serializer.validated_data['handover_notes'].strip()
+            if discrepancy != Decimal('0.00') and not notes:
+                return Response(
+                    {'handover_notes': [
+                        'A reason is required when the drawer does not balance.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            for field, value in totals.items():
+                setattr(shift, field, value)
+            shift.actual_closing_cash = actual_cash
+            shift.discrepancy = discrepancy
+            shift.status = 'CLOSED'
+            shift.closed_at = closed_at
+            shift.closed_by = request.user
+            shift.handover_notes = notes
+            shift.save(update_fields=[
+                'cash_collected', 'telebirr_collected', 'cbe_card_collected',
+                'bank_transfer_collected', 'actual_closing_cash', 'discrepancy',
+                'status', 'closed_at', 'closed_by', 'handover_notes',
+            ])
+            log_audit_event(
+                module=AuditModule.FOLIO,
+                action='CASHIER_SHIFT_CLOSED',
+                details=f'{shift.shift_name} closed by {request.user.full_name}; counted cash {actual_cash} ETB; discrepancy {discrepancy} ETB.',
+                request=request,
+                before_state={'status': 'OPEN'},
+                after_state={
+                    'shift_id': str(shift.pk),
+                    'cashier_id': str(shift.cashier_id) if shift.cashier_id else None,
+                    'cash_collected': str(shift.cash_collected),
+                    'telebirr_collected': str(shift.telebirr_collected),
+                    'cbe_card_collected': str(shift.cbe_card_collected),
+                    'bank_transfer_collected': str(shift.bank_transfer_collected),
+                    'actual_closing_cash': str(actual_cash),
+                    'discrepancy': str(discrepancy),
+                    'handover_notes': notes,
+                },
+            )
+        return Response(CashierShiftSerializer(shift).data)
 
 
 class FolioViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
@@ -121,7 +266,9 @@ class FolioViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         payment = get_object_or_404(Payment, id=payment_id, folio_id=pk)
         before_state = {'status': payment.status}
         payment.status = 'COMPLETED'
-        payment.save()
+        payment.received_by = request.user
+        payment.completed_at = timezone.now()
+        payment.save(update_fields=['status', 'received_by', 'completed_at'])
         log_audit_event(
             module=AuditModule.FOLIO,
             action='PAYMENT_CONFIRMED',

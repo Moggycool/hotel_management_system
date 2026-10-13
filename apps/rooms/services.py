@@ -15,7 +15,7 @@ class AvailabilityEngine:
         # Find rooms with overlapping active reservations
         overlapping_reservations = Reservation.objects.filter(
             status__in=[ReservationStatus.CONFIRMED,
-                        ReservationStatus.CHECKED_IN, ReservationStatus.PAYMENT_PENDING],
+                        ReservationStatus.CHECKED_IN],
             check_in_date__lt=check_out,
             check_out_date__gt=check_in,
         )

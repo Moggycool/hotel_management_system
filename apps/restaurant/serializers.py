@@ -73,7 +73,7 @@ class RestaurantOrderSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'order_number', 'kot_number', 'order_type', 'outlet',
             'table_number', 'room_number', 'reservation', 'reservation_id',
-            'guest_name', 'waiter', 'waiter_name', 'covers', 'items',
+            'guest_name', 'waiter', 'waiter_name', 'settled_by', 'covers', 'items',
             'subtotal', 'service_charge', 'vat_amount', 'grand_total',
             'status', 'payment_method', 'payment_reference',
             'telebirr_transaction_id', 'void_reason', 'special_instructions',
@@ -83,7 +83,7 @@ class RestaurantOrderSerializer(serializers.ModelSerializer):
             'id', 'order_number', 'kot_number', 'subtotal', 'service_charge',
             'vat_amount', 'grand_total', 'status', 'payment_method',
             'payment_reference', 'telebirr_transaction_id', 'void_reason',
-            'created_at', 'kot_sent_at', 'settled_at',
+            'created_at', 'kot_sent_at', 'settled_at', 'settled_by',
         ]
 
     def validate(self, attrs):

@@ -5,11 +5,7 @@ import {
   Receipt,
   CheckCircle2,
   AlertTriangle,
-  ArrowRight,
   ShieldCheck,
-  User,
-  Clock,
-  Banknote,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { CashierShiftRecord } from '../../types/hotel';
@@ -25,33 +21,43 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
   shiftToClose,
   onClose,
 }) => {
-  const { currentRole, openCashierShift, closeCashierShift } = useHotel();
+  const { openCashierShift, closeCashierShift } = useHotel();
 
   // Mode: Open Shift State
   const [shiftName, setShiftName] = useState<CashierShiftRecord['shiftName']>(
     'Morning Shift (06:00 - 14:00)'
   );
-  const [cashierName, setCashierName] = useState('Meron Assefa');
   const [openingFloat, setOpeningFloat] = useState(5000);
 
   // Mode: Close Shift State
   const expectedCash = shiftToClose ? shiftToClose.openingFloat + shiftToClose.cashCollected : 0;
   const [actualClosingCash, setActualClosingCash] = useState<number>(expectedCash);
-  const [handoverNotes, setHandoverNotes] = useState('Shift closed cleanly. Cash counted and handed over.');
+  const [handoverNotes, setHandoverNotes] = useState('');
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   const discrepancy = actualClosingCash - expectedCash;
 
-  const handleSubmitOpen = (e: React.FormEvent) => {
+  const handleSubmitOpen = async (e: React.FormEvent) => {
     e.preventDefault();
-    openCashierShift(shiftName, cashierName, Number(openingFloat));
-    onClose();
+    setRequestError(null);
+    try {
+      await openCashierShift(shiftName, Number(openingFloat));
+      onClose();
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Could not open the shift.');
+    }
   };
 
-  const handleSubmitClose = (e: React.FormEvent) => {
+  const handleSubmitClose = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shiftToClose) return;
-    closeCashierShift(shiftToClose.id, Number(actualClosingCash), handoverNotes);
-    onClose();
+    setRequestError(null);
+    try {
+      await closeCashierShift(shiftToClose.id, Number(actualClosingCash), handoverNotes);
+      onClose();
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Could not close the shift.');
+    }
   };
 
   return (
@@ -80,6 +86,12 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
           </button>
         </div>
 
+        {requestError && (
+          <div role="alert" className="mx-5 mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+            {requestError}
+          </div>
+        )}
+
         {/* OPEN SHIFT FORM */}
         {mode === 'open' ? (
           <form onSubmit={handleSubmitOpen} className="p-5 space-y-4">
@@ -96,20 +108,6 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
                 <option value="Afternoon Shift (14:00 - 22:00)">Afternoon Shift (14:00 - 22:00)</option>
                 <option value="Night Audit Shift (22:00 - 06:00)">Night Audit Shift (22:00 - 06:00)</option>
               </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Assigned Cashier / Receptionist
-              </label>
-              <input
-                type="text"
-                required
-                value={cashierName}
-                onChange={(e) => setCashierName(e.target.value)}
-                className="w-full text-xs px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Cashier full name"
-              />
             </div>
 
             <div>
@@ -136,7 +134,7 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
             <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <span>
-                Opening this shift creates an audit trail entry. All collections during this window will be attributed to {cashierName}.
+                The shift is assigned to your authenticated staff account. Completed payments received by you during the shift are counted at close.
               </span>
             </div>
 
@@ -166,7 +164,7 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
                     <span>{shiftToClose.shiftName}</span>
                     <span className="text-indigo-600">{shiftToClose.cashierName}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-slate-600 pt-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-600 pt-1">
                     <div>
                       <span>Opening Float:</span>{' '}
                       <strong className="text-slate-900">{shiftToClose.openingFloat.toLocaleString()} ETB</strong>
@@ -182,6 +180,10 @@ export const CashierShiftModal: React.FC<CashierShiftModalProps> = ({
                     <div>
                       <span>CBE Cards:</span>{' '}
                       <strong className="text-slate-900">{shiftToClose.cbeCardCollected.toLocaleString()} ETB</strong>
+                    </div>
+                    <div>
+                      <span>Bank Transfer:</span>{' '}
+                      <strong className="text-slate-900">{shiftToClose.bankTransferCollected.toLocaleString()} ETB</strong>
                     </div>
                   </div>
                 </div>

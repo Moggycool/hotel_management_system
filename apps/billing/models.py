@@ -98,7 +98,62 @@ class Payment(models.Model):
     notes = models.TextField(blank=True)
     received_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.method} - {self.amount} ETB ({self.status})"
+
+
+class CashierShift(models.Model):
+    SHIFT_SLOTS = [
+        ('Morning Shift (06:00 - 14:00)', 'Morning Shift (06:00 - 14:00)'),
+        ('Afternoon Shift (14:00 - 22:00)', 'Afternoon Shift (14:00 - 22:00)'),
+        ('Night Audit Shift (22:00 - 06:00)', 'Night Audit Shift (22:00 - 06:00)'),
+    ]
+    STATUSES = [
+        ('OPEN', 'Open'),
+        ('CLOSED', 'Closed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business_date = models.DateField(default=timezone.localdate, db_index=True)
+    shift_name = models.CharField(max_length=50, choices=SHIFT_SLOTS)
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='cashier_shifts')
+    cashier_name = models.CharField(max_length=150)
+    cashier_role = models.CharField(max_length=50)
+    opening_float = models.DecimalField(max_digits=12, decimal_places=2)
+    cash_collected = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    telebirr_collected = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    cbe_card_collected = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    bank_transfer_collected = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    actual_closing_cash = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True)
+    discrepancy = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True)
+    status = models.CharField(
+        max_length=10, choices=STATUSES, default='OPEN', db_index=True)
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='closed_cashier_shifts')
+    handover_notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-opened_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['business_date', 'shift_name'],
+                name='unique_cashier_shift_slot_per_business_date',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.business_date} {self.shift_name} - {self.cashier_name} ({self.status})'

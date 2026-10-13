@@ -27,14 +27,17 @@ class Command(BaseCommand):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     loaded_data = json.load(f)
-                self.stdout.write(self.style.SUCCESS(f"Loaded reservation data from {file_path}"))
+                self.stdout.write(self.style.SUCCESS(
+                    f"Loaded reservation data from {file_path}"))
             except Exception as e:
-                self.stdout.write(self.style.WARNING(f"Could not read {file_path}: {e}"))
+                self.stdout.write(self.style.WARNING(
+                    f"Could not read {file_path}: {e}"))
 
         # Default rate plan
         rp, _ = RatePlan.objects.get_or_create(
             name='Standard Flexible Rate',
-            defaults={'multiplier': Decimal('1.00'), 'description': 'Standard Flexible Rate'}
+            defaults={'multiplier': Decimal(
+                '1.00'), 'description': 'Standard Flexible Rate'}
         )
 
         today = date.today()
@@ -48,14 +51,19 @@ class Command(BaseCommand):
             items = []
 
         for item in items:
-            code = item.get('confirmation_code') or item.get('confirmationCode')
+            code = item.get('confirmation_code') or item.get(
+                'confirmationCode')
             if not code:
                 continue
 
-            guest_name = item.get('guest_name') or item.get('guestName') or 'Walk-in Guest'
-            guest_phone = item.get('guest_phone') or item.get('guestPhone') or '+251 91 123 4567'
-            guest_email = item.get('guest_email') or item.get('guestEmail') or ''
-            room_num = str(item.get('room_number') or item.get('roomNumber') or '101').replace('room-', '').strip()
+            guest_name = item.get('guest_name') or item.get(
+                'guestName') or 'Walk-in Guest'
+            guest_phone = item.get('guest_phone') or item.get(
+                'guestPhone') or '+251 91 123 4567'
+            guest_email = item.get(
+                'guest_email') or item.get('guestEmail') or ''
+            room_num = str(item.get('room_number') or item.get(
+                'roomNumber') or '101').replace('room-', '').strip()
 
             # Find or create guest
             guest = Guest.objects.filter(phone_number=guest_phone).first()
@@ -69,7 +77,8 @@ class Command(BaseCommand):
                     phone_number=guest_phone,
                     email=guest_email if guest_email else None,
                     id_type=IDType.FAYDA,
-                    id_number=item.get('id_number') or item.get('idNumber') or 'FAN-9901-4428',
+                    id_number=item.get('id_number') or item.get(
+                        'idNumber') or '',
                     nationality='Ethiopian',
                     vip_tier=VIPTier.REGULAR,
                 )
@@ -79,7 +88,8 @@ class Command(BaseCommand):
             if not room:
                 rtype, _ = RoomType.objects.get_or_create(
                     name='Standard King',
-                    defaults={'name_amharic': 'ስታንዳርድ ኪንግ', 'base_price_etb': Decimal('3500.00')}
+                    defaults={'name_amharic': 'ስታንዳርድ ኪንግ',
+                              'base_price_etb': Decimal('3500.00')}
                 )
                 room = Room.objects.create(
                     room_number=room_num,
@@ -89,16 +99,23 @@ class Command(BaseCommand):
                 )
 
             # Dates
-            check_in_raw = item.get('check_in_date') or item.get('checkInDate') or str(today)
-            check_out_raw = item.get('check_out_date') or item.get('checkOutDate') or str(today + timedelta(days=2))
+            check_in_raw = item.get('check_in_date') or item.get(
+                'checkInDate') or str(today)
+            check_out_raw = item.get('check_out_date') or item.get(
+                'checkOutDate') or str(today + timedelta(days=2))
             check_in = str(check_in_raw).split('T')[0]
             check_out = str(check_out_raw).split('T')[0]
 
-            rate_total = Decimal(str(item.get('room_rate_total_etb') or item.get('roomRateTotal') or '3500.00'))
-            vat = Decimal(str(item.get('vat_etb') or (rate_total * Decimal('0.15')).quantize(Decimal('0.01'))))
-            svc = Decimal(str(item.get('service_charge_etb') or (rate_total * Decimal('0.10')).quantize(Decimal('0.01'))))
-            grand = Decimal(str(item.get('grand_total_etb') or item.get('grandTotal') or (rate_total + vat + svc)))
-            deposit = Decimal(str(item.get('deposit_paid_etb') or item.get('amountPaid') or grand))
+            rate_total = Decimal(
+                str(item.get('room_rate_total_etb') or item.get('roomRateTotal') or '3500.00'))
+            vat = Decimal(str(item.get('vat_etb') or (
+                rate_total * Decimal('0.15')).quantize(Decimal('0.01'))))
+            svc = Decimal(str(item.get('service_charge_etb') or (
+                rate_total * Decimal('0.10')).quantize(Decimal('0.01'))))
+            grand = Decimal(str(item.get('grand_total_etb') or item.get(
+                'grandTotal') or (rate_total + vat + svc)))
+            deposit = Decimal(str(item.get('deposit_paid_etb')
+                              or item.get('amountPaid') or grand))
 
             res, created = Reservation.objects.update_or_create(
                 confirmation_code=code,
