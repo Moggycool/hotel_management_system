@@ -3,10 +3,6 @@ import { ArrowRight, CalendarDays, Check, ChevronDown, Clock3, MapPin, Minus, Pl
 import { hotelApi, PublicBookingInfo, PublicBookingQuote } from '../../api/hotelApi';
 import { Room } from '../../types/hotel';
 
-interface PublicBookingPageProps {
-  onStaffAccess: () => void;
-}
-
 interface GuestDetails {
   guestName: string;
   guestEmail: string;
@@ -44,7 +40,7 @@ function roomImage(type: string) {
   return roomPhotography[key];
 }
 
-export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ onStaffAccess }) => {
+export const PublicBookingPage: React.FC = () => {
   const initial = initialDates();
   const [property, setProperty] = useState<PublicBookingInfo | null>(null);
   const [propertyError, setPropertyError] = useState('');
@@ -182,7 +178,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ onStaffAcc
         <nav className="flex items-center gap-4 text-sm">
           <a href="#rooms" className="hidden sm:block hover:text-[#d9c78e]">Rooms</a>
           <a href="#story" className="hidden sm:block hover:text-[#d9c78e]">The hotel</a>
-          <button onClick={onStaffAccess} className="border border-white/60 px-3 py-2 text-xs font-semibold hover:bg-white hover:text-[#20342f]">Staff access</button>
         </nav>
       </header>
 
@@ -306,7 +301,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ onStaffAcc
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 md:flex-row md:items-end">
           <div><p className="font-serif text-2xl">{propertyName}</p><p className="mt-2 text-xs text-white/65">{property?.address}</p></div>
           <div className="text-xs leading-6 text-white/75">{property?.phone && <p>{property.phone}</p>}{property?.email && <p>{property.email}</p>}<p>Check-in {property?.checkInTime || '14:00'} · Check-out {property?.checkOutTime || '11:00'}</p></div>
-          <button onClick={onStaffAccess} className="self-start border border-white/40 px-4 py-2 text-xs font-semibold hover:bg-white hover:text-[#203a32] md:self-auto">Staff access</button>
         </div>
       </footer>
     </main>

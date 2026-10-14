@@ -174,10 +174,22 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
 };
 
 export function App() {
-  const [appMode, setAppMode] = useState<'public' | 'staff'>('public');
+  const staffPath = () => window.location.pathname.replace(/\/$/, '') === '/staff';
+  const [appMode, setAppMode] = useState<'public' | 'staff'>(() => staffPath() ? 'staff' : 'public');
   const [staff, setStaff] = useState<AuthenticatedStaff | null>(null);
   const [loginError, setLoginError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
+
+  useEffect(() => {
+    const handleHistoryChange = () => setAppMode(staffPath() ? 'staff' : 'public');
+    window.addEventListener('popstate', handleHistoryChange);
+    return () => window.removeEventListener('popstate', handleHistoryChange);
+  }, []);
+
+  const navigateToPublic = () => {
+    if (staffPath()) window.history.pushState({}, '', '/');
+    setAppMode('public');
+  };
 
   const handleLogin = async (email: string, password: string) => {
     setIsSigningIn(true);
@@ -195,15 +207,15 @@ export function App() {
   const handleLogout = () => {
     clearApiAuthentication();
     setStaff(null);
-    setAppMode('public');
+    navigateToPublic();
   };
 
   if (appMode === 'public') {
-    return <PublicBookingPage onStaffAccess={() => setAppMode('staff')} />;
+    return <PublicBookingPage />;
   }
 
   if (!staff) {
-    return <LoginScreen onLogin={handleLogin} isSubmitting={isSigningIn} error={loginError} onPublicSite={() => setAppMode('public')} />;
+    return <LoginScreen onLogin={handleLogin} isSubmitting={isSigningIn} error={loginError} onPublicSite={navigateToPublic} />;
   }
 
   return (
