@@ -421,6 +421,28 @@ export interface TaxComplianceReport {
   serviceChargeTotal: number;
 }
 
+export interface GuestFeedbackRecord {
+  id: string;
+  rating: number;
+  category: string;
+  category_display: string;
+  message: string;
+  guest_name: string;
+  reservation_code: string;
+  submitted_at: string;
+  status: 'NEW' | 'REVIEWING' | 'RESOLVED';
+  status_display: string;
+  staff_notes: string;
+  reviewed_by: string | null;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+}
+
+export interface GuestFeedbackSubmission {
+  id: string;
+  received: boolean;
+}
+
 function mapBackendCashierShift(record: any): CashierShiftRecord {
   return {
     id: String(record.id),
@@ -901,6 +923,81 @@ export const hotelApi = {
           };
         }
         lastError = payload.detail || `Hotel server returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async submitGuestFeedback(input: {
+    rating: number;
+    category: 'STAY' | 'ROOM' | 'DINING' | 'SERVICE' | 'OTHER';
+    message: string;
+    guestName: string;
+    reservationCode: string;
+  }): Promise<GuestFeedbackSubmission> {
+    let lastError = 'Unable to submit feedback.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/feedback/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            rating: input.rating,
+            category: input.category,
+            message: input.message,
+            guest_name: input.guestName,
+            reservation_code: input.reservationCode,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return payload as GuestFeedbackSubmission;
+        lastError = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchGuestFeedback(): Promise<GuestFeedbackRecord[]> {
+    let lastError = 'Unable to load guest feedback.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/feedback/`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const records = Array.isArray(payload) ? payload : payload.results;
+          if (Array.isArray(records)) return records as GuestFeedbackRecord[];
+          lastError = 'Hotel server returned an invalid feedback list.';
+        } else {
+          lastError = payload.detail || `Hotel server returned HTTP ${response.status}.`;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async reviewGuestFeedback(
+    id: string,
+    updates: { status?: GuestFeedbackRecord['status']; staff_notes?: string },
+  ): Promise<GuestFeedbackRecord> {
+    let lastError = 'Unable to update feedback.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/feedback/${encodeURIComponent(id)}/`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(updates),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return payload as GuestFeedbackRecord;
+        lastError = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
       } catch (error) {
         lastError = error instanceof Error ? error.message : lastError;
       }

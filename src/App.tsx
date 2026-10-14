@@ -22,6 +22,7 @@ import { Reservation, Room, Guest } from './types/hotel';
 import { AuthenticatedStaff, clearApiAuthentication, hotelApi } from './api/hotelApi';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
+import { FeedbackInboxTab } from './components/feedback/FeedbackInboxTab';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
   const { setCurrentRole } = useHotel();
@@ -133,7 +134,11 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
 
             {activeTab === 'database_admin' && <DatabaseAdminTab />}
 
+            {activeTab === 'guest_feedback' && <FeedbackInboxTab />}
+
             {activeTab === 'settings' && <SettingsTab />}
+
+            {activeTab === 'guest_feedback' && <FeedbackInboxTab />}
           </div>
         </main>
       </div>

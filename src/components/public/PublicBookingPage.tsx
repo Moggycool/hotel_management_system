@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, CalendarDays, Check, ChevronDown, Clock3, MapPin, Minus, Plus, ShieldCheck, Users } from 'lucide-react';
+import { ArrowRight, CalendarDays, Check, ChevronDown, Clock3, MapPin, Send, Users } from 'lucide-react';
 import { hotelApi, PublicBookingInfo, PublicBookingQuote } from '../../api/hotelApi';
 import { Room } from '../../types/hotel';
 
@@ -73,6 +73,15 @@ export const PublicBookingPage: React.FC = () => {
     checkIn: string;
     checkOut: string;
   } | null>(null);
+  const [feedback, setFeedback] = useState({
+    rating: 5,
+    category: 'STAY' as 'STAY' | 'ROOM' | 'DINING' | 'SERVICE' | 'OTHER',
+    message: '',
+    guestName: '',
+    reservationCode: '',
+  });
+  const [feedbackStatus, setFeedbackStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [feedbackError, setFeedbackError] = useState('');
 
   useEffect(() => {
     let isCurrent = true;
@@ -157,6 +166,20 @@ export const PublicBookingPage: React.FC = () => {
 
   const updateGuest = (field: keyof GuestDetails, value: string | boolean) => {
     setGuest((current) => ({ ...current, [field]: value }));
+  };
+
+  const submitFeedback = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFeedbackStatus('sending');
+    setFeedbackError('');
+    try {
+      await hotelApi.submitGuestFeedback(feedback);
+      setFeedbackStatus('sent');
+      setFeedback((current) => ({ ...current, message: '' }));
+    } catch (error) {
+      setFeedbackStatus('error');
+      setFeedbackError(error instanceof Error ? error.message : 'Feedback could not be submitted.');
+    }
   };
 
   const propertyName = property?.propertyName || 'Arbaminch Tourist Hotel';
@@ -293,6 +316,36 @@ export const PublicBookingPage: React.FC = () => {
           <section id="story" className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 md:grid-cols-2 md:px-12 md:py-24">
             <div className="order-2 md:order-1"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58b4a]">The setting</p><h2 className="mt-3 font-serif text-4xl leading-tight">Between the hills and the water.</h2><p className="mt-5 max-w-xl text-sm leading-7 text-[#68756e]">Stay close to Arba Minch and the landscapes of the southern Rift Valley. Our team can help arrange local experiences and a comfortable beginning to your journey.</p>{property?.address && <p className="mt-5 flex items-center gap-2 text-sm text-[#516158]"><MapPin className="h-4 w-4 text-[#a58b4a]" />{property.address}</p>}</div>
             <img src="https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1400&q=85" alt="Rift Valley lake and hills near Arba Minch" className="order-1 h-[360px] w-full object-cover md:order-2" />
+          </section>
+
+          <section className="bg-[#e8ebe4] py-14 md:py-20">
+            <div className="mx-auto grid max-w-6xl gap-8 px-5 md:grid-cols-[0.8fr_1fr] md:px-12">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58b4a]">Your voice</p>
+                <h2 className="mt-3 font-serif text-4xl leading-tight">Help us make each stay better.</h2>
+                <p className="mt-4 max-w-md text-sm leading-6 text-[#68756e]">Share a note with hotel management. You can leave your name and reservation code blank.</p>
+              </div>
+              <form onSubmit={submitFeedback} className="space-y-4 bg-white p-5 shadow-sm md:p-7">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-[#52615a]">Rating
+                    <select value={feedback.rating} onChange={(event) => setFeedback((current) => ({ ...current, rating: Number(event.target.value) }))} className="mt-1.5 w-full border border-[#d9ded8] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#285b4c]">
+                      {[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} / 5</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-[#52615a]">About
+                    <select value={feedback.category} onChange={(event) => setFeedback((current) => ({ ...current, category: event.target.value as typeof current.category }))} className="mt-1.5 w-full border border-[#d9ded8] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#285b4c]">
+                      <option value="STAY">Overall stay</option><option value="ROOM">Room and facilities</option><option value="DINING">Dining</option><option value="SERVICE">Staff service</option><option value="OTHER">Other</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-[#52615a]">Name <span className="font-normal text-[#8b948e]">(optional)</span><input value={feedback.guestName} onChange={(event) => setFeedback((current) => ({ ...current, guestName: event.target.value }))} maxLength={150} className="mt-1.5 w-full border border-[#d9ded8] px-3 py-2.5 text-sm outline-none focus:border-[#285b4c]" /></label>
+                  <label className="text-xs font-semibold text-[#52615a]">Reservation code <span className="font-normal text-[#8b948e]">(optional)</span><input value={feedback.reservationCode} onChange={(event) => setFeedback((current) => ({ ...current, reservationCode: event.target.value }))} maxLength={30} className="mt-1.5 w-full border border-[#d9ded8] px-3 py-2.5 text-sm outline-none focus:border-[#285b4c]" /></label>
+                </div>
+                <label className="block text-xs font-semibold text-[#52615a]">Your feedback<textarea required minLength={10} maxLength={4000} rows={4} value={feedback.message} onChange={(event) => setFeedback((current) => ({ ...current, message: event.target.value }))} className="mt-1.5 w-full resize-y border border-[#d9ded8] px-3 py-2.5 text-sm outline-none focus:border-[#285b4c]" placeholder="Tell us what went well or what we can improve." /></label>
+                {feedbackStatus === 'sent' && <p role="status" className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Thank you. Your feedback has been sent to hotel management.</p>}
+                {feedbackError && <p role="alert" className="border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{feedbackError}</p>}
+                <button disabled={feedbackStatus === 'sending'} className="inline-flex min-h-11 items-center gap-2 bg-[#285b4c] px-5 text-sm font-bold text-white hover:bg-[#1d493c] disabled:opacity-60">{feedbackStatus === 'sending' ? 'Sending…' : 'Send feedback'} <Send className="h-4 w-4" /></button>
+              </form>
+            </div>
           </section>
         </>
       )}

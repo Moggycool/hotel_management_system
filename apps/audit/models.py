@@ -19,6 +19,7 @@ class AuditModule(models.TextChoices):
     HOUSEKEEPING = 'HOUSEKEEPING', 'Housekeeping & Facilities'
     INVENTORY = 'INVENTORY', 'Store & Inventory Management'
     NIGHT_AUDIT = 'NIGHT_AUDIT', 'Night Audit & Close'
+    FEEDBACK = 'FEEDBACK', 'Guest Feedback'
 
 
 class AuditSeverity(models.TextChoices):

@@ -17,6 +17,7 @@ import {
   Database,
   Moon,
   PackageCheck,
+  MessageSquareText,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 
@@ -33,6 +34,7 @@ export type ActiveTab =
   | 'night_audit'
   | 'calendar'
   | 'database_admin'
+  | 'guest_feedback'
   | 'settings';
 
 interface SidebarProps {
@@ -41,7 +43,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { metrics, housekeepingTasks, maintenanceTickets } = useHotel();
+  const { metrics, housekeepingTasks, maintenanceTickets, currentRole } = useHotel();
 
   const dirtyCount = housekeepingTasks.filter((t) => t.status === 'dirty' || t.status === 'in_progress').length;
   const maintenanceCount = maintenanceTickets.filter((m) => m.status !== 'resolved').length;
@@ -90,6 +92,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     { id: 'database_admin', label: 'Database & Admin', icon: Database },
     { id: 'settings', label: 'Hotel Settings', icon: Settings },
   ];
+  if (['General Manager', 'Front Office Manager', 'System Administrator'].includes(currentRole)) {
+    navItems.splice(navItems.length - 1, 0, {
+      id: 'guest_feedback', label: 'Guest Feedback', icon: MessageSquareText,
+    });
+  }
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">

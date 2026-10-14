@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'apps.restaurant',
     'apps.kitchen',
     'apps.inventory',
+    'apps.feedback',
     'apps.core',
     'corsheaders',
 ]
