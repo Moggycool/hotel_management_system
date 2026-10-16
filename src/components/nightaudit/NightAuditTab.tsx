@@ -22,7 +22,7 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
-import { StaffRole, NightAuditReport, CashierShiftRecord, Reservation } from '../../types/hotel';
+import { NightAuditReport, CashierShiftRecord, Reservation } from '../../types/hotel';
 import { NightAuditWizardModal } from './NightAuditWizardModal';
 import { AuditReportDetailModal } from './AuditReportDetailModal';
 import { CashierShiftModal } from './CashierShiftModal';
@@ -45,8 +45,6 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
     cashierShifts,
     cashierShiftsLoading,
     cashierShiftsError,
-    currentRole,
-    setCurrentRole,
     reservations,
     orders,
     auditLogs,
@@ -111,7 +109,7 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
           </p>
         </div>
 
-        {/* Action & Role Controls */}
+        {/* Night audit action */}
         <div className="flex flex-col sm:flex-row md:flex-col gap-3 shrink-0">
           <button
             onClick={() => setIsWizardOpen(true)}
@@ -121,20 +119,6 @@ export const NightAuditTab: React.FC<NightAuditTabProps> = ({
             Run Night Audit Wizard
           </button>
 
-          {/* Quick Role Switcher */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-2 flex items-center justify-between gap-2 text-xs">
-            <span className="text-slate-400 font-medium pl-1">Auditor Role:</span>
-            <select
-              value={currentRole}
-              onChange={(e) => setCurrentRole(e.target.value as StaffRole)}
-              className="bg-slate-900 text-indigo-300 font-semibold px-2 py-1 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-400 text-xs"
-            >
-              <option value="General Manager">General Manager</option>
-              <option value="Front Office Manager">Front Office Manager</option>
-              <option value="Receptionist">Receptionist</option>
-              <option value="Cashier">Cashier</option>
-            </select>
-          </div>
         </div>
       </div>
 

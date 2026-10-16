@@ -49,7 +49,6 @@ interface HotelContextType {
   maintenanceTickets: MaintenanceTicket[];
   settings: HotelSettings;
   currentRole: StaffRole;
-  setCurrentRole: (role: StaffRole) => void;
   auditLogs: AuditLogEntry[];
   addAuditLog: (entry: Omit<AuditLogEntry, 'id' | 'timestamp'>) => void;
   searchQuery: string;
@@ -126,7 +125,6 @@ interface HotelContextType {
   updateGuest: (guestId: string, updates: Partial<Guest>) => Promise<boolean>;
   updateSettings: (newSettings: Partial<HotelSettings>) => Promise<void>;
   updateReservationSyncStatus: (reservationId: string, synced: boolean, error?: string, databaseId?: string) => void;
-  resetToDemoData: () => void;
 
   // Milestone 4: POS & Dining Actions
   createOrder: (data: {
@@ -195,7 +193,7 @@ const STORAGE_KEYS = {
   NIGHT_AUDITS: 'gh_hotel_night_audits_v1',
 };
 
-export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRole }> = ({ children, initialRole }) => {
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
 
   const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
@@ -245,7 +243,7 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [currentRole, setCurrentRole] = useState<StaffRole>('Receptionist');
+  const currentRole = initialRole;
 
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
     try {
@@ -1435,30 +1433,6 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setCashierShifts((prev) => prev.map((item) => item.id === shift.id ? shift : item));
   };
 
-  const resetToDemoData = () => {
-    localStorage.removeItem(STORAGE_KEYS.ROOMS);
-    localStorage.removeItem(STORAGE_KEYS.RESERVATIONS);
-    localStorage.removeItem(STORAGE_KEYS.GUESTS);
-    localStorage.removeItem(STORAGE_KEYS.HOUSEKEEPING);
-    localStorage.removeItem(STORAGE_KEYS.MAINTENANCE);
-    localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-    localStorage.removeItem(STORAGE_KEYS.MENU);
-    localStorage.removeItem(STORAGE_KEYS.TABLES);
-    localStorage.removeItem(STORAGE_KEYS.ORDERS);
-    localStorage.removeItem(STORAGE_KEYS.NIGHT_AUDITS);
-    setRooms(initialRooms);
-    setReservations(initialReservations);
-    setGuests(initialGuests);
-    setHousekeepingTasks(initialHousekeepingTasks);
-    setMaintenanceTickets(initialMaintenanceTickets);
-    setSettings(initialHotelSettings);
-    setMenuItems(initialMenuItems);
-    setTables(initialRestaurantTables);
-    setOrders(initialRestaurantOrders);
-    setNightAuditReports(initialNightAuditReports);
-    setCashierShifts([]);
-  };
-
   // Compute metrics
   const todayStr = getRelativeDate(0);
   const totalRooms = rooms.length;
@@ -1532,7 +1506,6 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         maintenanceTickets,
         settings,
         currentRole,
-        setCurrentRole,
         auditLogs,
         addAuditLog,
         searchQuery,
@@ -1570,7 +1543,6 @@ export const HotelProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateGuest,
         updateSettings,
         updateReservationSyncStatus,
-        resetToDemoData,
         createOrder,
         updateOrderItemStatus,
         postOrderToRoomFolio,

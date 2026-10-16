@@ -12,18 +12,15 @@ import {
   Database,
   Smartphone,
   Eye,
-  PlusCircle,
   Clock,
   Filter,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
-import { StaffRole, AuditLogEntry } from '../../types/hotel';
+import { StaffRole } from '../../types/hotel';
 
 export const Milestone1AuditTab: React.FC = () => {
-  const { currentRole, setCurrentRole, auditLogs, addAuditLog, settings } = useHotel();
+  const { currentRole, auditLogs, settings } = useHotel();
   const [selectedModuleFilter, setSelectedModuleFilter] = useState<string>('ALL');
-  const [testActionName, setTestActionName] = useState('FRONT_OFFICE_LOGIN');
-  const [testActionDetails, setTestActionDetails] = useState('Staff member authenticated via MFA session token.');
 
   // Role permissions definitions for Milestone 1 RBAC
   const rolePermissions: Record<StaffRole, { title: string; canDo: string[]; restricted: string[] }> = {
@@ -195,19 +192,6 @@ export const Milestone1AuditTab: React.FC = () => {
     },
   };
 
-  const handleEmitTestAudit = (e: React.FormEvent) => {
-    e.preventDefault();
-    addAuditLog({
-      actorName: 'Current User',
-      actorRole: currentRole,
-      action: testActionName,
-      module: 'SECURITY',
-      details: testActionDetails,
-      severity: 'info',
-      ipAddress: '192.168.1.15',
-    });
-  };
-
   const filteredLogs = auditLogs.filter((log) => {
     if (selectedModuleFilter === 'ALL') return true;
     return log.module === selectedModuleFilter;
@@ -254,23 +238,6 @@ export const Milestone1AuditTab: React.FC = () => {
               <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold">
                 RBAC
               </span>
-            </div>
-
-            <div className="mb-4">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                Simulate Role
-              </label>
-              <select
-                value={currentRole}
-                onChange={(e) => setCurrentRole(e.target.value as StaffRole)}
-                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              >
-                {Object.keys(rolePermissions).map((role) => (
-                  <option key={role} value={role}>
-                    {role}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div className="text-xs text-slate-600 font-semibold mb-3">
@@ -553,38 +520,6 @@ export const Milestone1AuditTab: React.FC = () => {
           </table>
         </div>
 
-        {/* Emit Test Audit Event Form */}
-        <form
-          onSubmit={handleEmitTestAudit}
-          className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-col sm:flex-row items-center gap-3 text-xs"
-        >
-          <div className="flex items-center gap-2 font-bold text-slate-700 shrink-0">
-            <PlusCircle className="w-4 h-4 text-indigo-600" />
-            <span>Emit Test Audit:</span>
-          </div>
-          <input
-            type="text"
-            required
-            value={testActionName}
-            onChange={(e) => setTestActionName(e.target.value)}
-            placeholder="Action (e.g. CASHIER_DRAWER_OPEN)"
-            className="p-1.5 bg-white border border-slate-200 rounded text-xs font-mono w-48"
-          />
-          <input
-            type="text"
-            required
-            value={testActionDetails}
-            onChange={(e) => setTestActionDetails(e.target.value)}
-            placeholder="Details..."
-            className="p-1.5 bg-white border border-slate-200 rounded text-xs flex-1 w-full"
-          />
-          <button
-            type="submit"
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded shadow-xs cursor-pointer shrink-0"
-          >
-            Append to Audit Log
-          </button>
-        </form>
       </div>
     </div>
   );

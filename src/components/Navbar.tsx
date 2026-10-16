@@ -4,7 +4,6 @@ import {
   Search,
   PlusCircle,
   Clock,
-  RefreshCw,
   CalendarCheck,
   ShieldCheck,
   UserCheck,
@@ -26,7 +25,6 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
     searchQuery,
     setSearchQuery,
     metrics,
-    resetToDemoData,
   } = useHotel();
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -136,18 +134,6 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
             <LogOut className="w-4 h-4" />
           </button>
 
-          {/* Reset Demo Data Button */}
-          <button
-            onClick={() => {
-              if (window.confirm('Reset Arbaminch Tourist Hotel sample data to factory demo state?')) {
-                resetToDemoData();
-              }
-            }}
-            title="Reset to Sample Data"
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </header>

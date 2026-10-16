@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HotelProvider, useHotel } from './context/HotelContext';
+import { HotelProvider } from './context/HotelContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar, ActiveTab } from './components/Sidebar';
 import { DashboardTab } from './components/dashboard/DashboardTab';
@@ -25,12 +25,7 @@ import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { FeedbackInboxTab } from './components/feedback/FeedbackInboxTab';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
-  const { setCurrentRole } = useHotel();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
-
-  useEffect(() => {
-    setCurrentRole(staff.role);
-  }, [setCurrentRole, staff.role]);
 
   // Modals state
   const [isNewReservationOpen, setIsNewReservationOpen] = useState(false);
@@ -224,7 +219,7 @@ export function App() {
   }
 
   return (
-    <HotelProvider>
+    <HotelProvider initialRole={staff.role}>
       <HotelApp staff={staff} onLogout={handleLogout} />
     </HotelProvider>
   );

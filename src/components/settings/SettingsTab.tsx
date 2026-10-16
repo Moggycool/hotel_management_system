@@ -8,14 +8,13 @@ import {
   Phone,
   Mail,
   MapPin,
-  RefreshCw,
   CheckCircle2,
   ShieldCheck,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 
 export const SettingsTab: React.FC = () => {
-  const { settings, updateSettings, resetToDemoData } = useHotel();
+  const { settings, updateSettings } = useHotel();
   const [hotelName, setHotelName] = useState(settings.hotelName);
   const [tagline, setTagline] = useState(settings.tagline);
   const [phone, setPhone] = useState(settings.phone);
@@ -238,27 +237,6 @@ export const SettingsTab: React.FC = () => {
         </div>
       </form>
 
-      {/* Demo Reset Card */}
-      <div className="bg-slate-900 text-white rounded-xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h4 className="font-bold text-sm text-white">Reset Demo Environment</h4>
-          <p className="text-slate-400 text-xs mt-1 max-w-lg">
-            Restore sample data for 20 luxury rooms, active in-house reservations, guests, housekeeping tasks, and folio charges.
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            if (window.confirm('Reset all hotel data back to initial demo state?')) {
-              resetToDemoData();
-              alert('Hotel data has been reset to default state.');
-            }
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0"
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Reset Sample Data</span>
-        </button>
-      </div>
     </div>
   );
 };
