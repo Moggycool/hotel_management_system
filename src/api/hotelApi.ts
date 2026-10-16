@@ -860,6 +860,25 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
+  async changeReservationRoomInDjango(reservationId: string, roomId: string): Promise<Reservation> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/reservations/${encodeURIComponent(reservationId)}/change-room/`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ room_id: roomId }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendReservation(payload);
+        lastError = payload.detail || `Django returned HTTP ${response.status} while changing the room.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to change reservation room.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
   async fetchPublicAvailableRoomsFromDjango(checkIn: string, checkOut: string): Promise<Room[]> {
     let lastError = 'The hotel booking service is unavailable.';
     const query = new URLSearchParams({ check_in: checkIn, check_out: checkOut });

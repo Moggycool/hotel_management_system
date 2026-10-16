@@ -361,6 +361,53 @@ def test_cancellation_and_no_show_release_room_availability(setup_rooms):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    'role', [StaffRole.RECEPTIONIST, StaffRole.FRONT_OFFICE_MANAGER],
+)
+def test_front_desk_can_cancel_fully_paid_confirmed_reservation_without_refund(
+    setup_rooms, role,
+):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code=f'TEST-FULLY-PAID-CANCEL-{role}',
+        guest=setup_rooms['guest'],
+        room=setup_rooms['r1'],
+        rate_plan=setup_rooms['rp'],
+        check_in_date=today + timedelta(days=1),
+        check_out_date=today + timedelta(days=3),
+        status=ReservationStatus.CONFIRMED,
+        room_rate_total_etb=Decimal('10000.00'),
+        service_charge_etb=Decimal('1000.00'),
+        vat_etb=Decimal('1500.00'),
+        grand_total_etb=Decimal('12500.00'),
+        deposit_paid_etb=Decimal('12500.00'),
+    )
+    staff = User.objects.create_user(
+        email=f'{role.lower()}-fully-paid-cancel@example.et',
+        password='StrongPassword#2026',
+        full_name='Front Desk Cancellation Staff',
+        role=role,
+    )
+
+    response = authenticated_client(staff).post(
+        '/api/v1/reservations/cancel/',
+        {'confirmation_code': reservation.confirmation_code},
+        format='json',
+    )
+
+    assert response.status_code == 200, response.data
+    reservation.refresh_from_db()
+    assert reservation.status == ReservationStatus.CANCELLED
+    assert reservation.deposit_paid_etb == Decimal('12500.00')
+    cancellation_log = AuditLog.objects.get(
+        action='RESERVATION_CANCELLED',
+        details__contains=reservation.confirmation_code,
+    )
+    assert cancellation_log.after_state['deposit_paid_etb'] == '12500.00'
+    assert 'no refund was initiated' in cancellation_log.details
+
+
+@pytest.mark.django_db
 def test_future_reservation_cannot_be_marked_no_show(setup_rooms):
     today = timezone.localdate()
     reservation = Reservation.objects.create(
@@ -571,6 +618,93 @@ def test_reservation_patch_preserves_dates_and_rejects_conflicting_room(setup_ro
     assert conflict_response.status_code == 400
     candidate.refresh_from_db()
     assert candidate.room_id == setup_rooms['r2'].id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('role', 'reservation_status', 'deposit_paid'),
+    [
+        (StaffRole.RECEPTIONIST, ReservationStatus.PAYMENT_PENDING, Decimal('0.00')),
+        (StaffRole.FRONT_OFFICE_MANAGER,
+         ReservationStatus.CONFIRMED, Decimal('500.00')),
+    ],
+)
+def test_front_desk_staff_can_change_room_for_paid_or_unpaid_reservations(
+    setup_rooms, role, reservation_status, deposit_paid,
+):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code=f'TEST-ROOM-CHANGE-{role}',
+        guest=setup_rooms['guest'],
+        room=setup_rooms['r1'],
+        rate_plan=setup_rooms['rp'],
+        check_in_date=today + timedelta(days=1),
+        check_out_date=today + timedelta(days=3),
+        status=reservation_status,
+        room_rate_total_etb=Decimal('10000.00'),
+        service_charge_etb=Decimal('1000.00'),
+        vat_etb=Decimal('1650.00'),
+        grand_total_etb=Decimal('12650.00'),
+        deposit_paid_etb=deposit_paid,
+    )
+    staff = User.objects.create_user(
+        email=f'{role.lower()}-room-change@example.et',
+        password='StrongPassword#2026',
+        full_name='Room Change Staff',
+        role=role,
+    )
+
+    response = authenticated_client(staff).patch(
+        f'/api/v1/reservations/{reservation.pk}/change-room/',
+        {'room_id': str(setup_rooms['r2'].pk)},
+        format='json',
+    )
+
+    assert response.status_code == 200, response.data
+    reservation.refresh_from_db()
+    assert reservation.room_id == setup_rooms['r2'].pk
+    assert reservation.status == reservation_status
+    assert reservation.room_rate_total_etb == Decimal('10000.00')
+    assert reservation.service_charge_etb == Decimal('1000.00')
+    assert reservation.vat_etb == Decimal('1650.00')
+    assert reservation.grand_total_etb == Decimal('12650.00')
+    assert reservation.deposit_paid_etb == deposit_paid
+    assert AuditLog.objects.filter(
+        action='RESERVATION_ROOM_CHANGED').count() == 1
+
+
+@pytest.mark.django_db
+def test_cashier_cannot_use_room_reassignment_endpoint(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-ROOM-CHANGE-CASHIER',
+        guest=setup_rooms['guest'],
+        room=setup_rooms['r1'],
+        rate_plan=setup_rooms['rp'],
+        check_in_date=today + timedelta(days=1),
+        check_out_date=today + timedelta(days=2),
+        status=ReservationStatus.PAYMENT_PENDING,
+        room_rate_total_etb=Decimal('5000.00'),
+        service_charge_etb=Decimal('500.00'),
+        vat_etb=Decimal('825.00'),
+        grand_total_etb=Decimal('6325.00'),
+    )
+    cashier = User.objects.create_user(
+        email='cashier-room-change@example.et',
+        password='StrongPassword#2026',
+        full_name='Room Change Cashier',
+        role=StaffRole.CASHIER,
+    )
+
+    response = authenticated_client(cashier).patch(
+        f'/api/v1/reservations/{reservation.pk}/change-room/',
+        {'room_id': str(setup_rooms['r2'].pk)},
+        format='json',
+    )
+
+    assert response.status_code == 403
+    reservation.refresh_from_db()
+    assert reservation.room_id == setup_rooms['r1'].pk
 
 
 @pytest.mark.django_db

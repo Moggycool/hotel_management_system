@@ -125,6 +125,7 @@ interface HotelContextType {
   updateGuest: (guestId: string, updates: Partial<Guest>) => Promise<boolean>;
   updateSettings: (newSettings: Partial<HotelSettings>) => Promise<void>;
   updateReservationSyncStatus: (reservationId: string, synced: boolean, error?: string, databaseId?: string) => void;
+  updateReservationRoom: (reservationId: string, roomId: string) => Promise<void>;
 
   // Milestone 4: POS & Dining Actions
   createOrder: (data: {
@@ -825,6 +826,20 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         ...updatedReservations,
       ];
     });
+  };
+
+  const updateReservationRoom = async (reservationId: string, roomId: string) => {
+    const updatedReservation = await hotelApi.changeReservationRoomInDjango(reservationId, roomId);
+    setReservations((current) => current.map((reservation) =>
+      reservation.databaseId === updatedReservation.databaseId || reservation.id === reservationId
+        ? updatedReservation
+        : reservation
+    ));
+    try {
+      setRooms(await hotelApi.fetchRoomsFromDjango());
+    } catch {
+      // The room assignment is already saved; keep the current room list if refresh fails.
+    }
   };
 
   const updateRoomStatus = (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => {
@@ -1543,6 +1558,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         updateGuest,
         updateSettings,
         updateReservationSyncStatus,
+        updateReservationRoom,
         createOrder,
         updateOrderItemStatus,
         postOrderToRoomFolio,

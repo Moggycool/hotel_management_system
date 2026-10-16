@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,7 +22,7 @@ from apps.reservations.serializers import (
 from apps.rooms.models import RatePlan, Room, RoomStatus
 from apps.rooms.services import AvailabilityEngine
 from apps.housekeeping.models import HousekeepingTask
-from apps.accounts.permissions import IsFrontOfficeStaff
+from apps.accounts.permissions import IsFrontOfficeStaff, IsReservationRoomAssignmentStaff
 from apps.audit.mixins import AuditedModelViewSetMixin
 from apps.audit.models import AuditModule
 from apps.audit.services import log_audit_event
@@ -52,6 +52,8 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             permission_class = AllowAny
         elif self.action in ['list', 'retrieve']:
             permission_class = IsAuthenticated
+        elif self.action == 'change_room':
+            permission_class = IsReservationRoomAssignmentStaff
         else:
             permission_class = IsFrontOfficeStaff
         return [permission_class()]
@@ -334,6 +336,69 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             'message': 'Django REST Reservations API is online and operational.'
         })
 
+    @action(detail=True, methods=['patch'], url_path='change-room')
+    def change_room(self, request, pk=None):
+        room_id_serializer = serializers.UUIDField()
+        try:
+            room_id = room_id_serializer.run_validation(
+                request.data.get('room_id'))
+        except serializers.ValidationError as error:
+            return Response({'room_id': error.detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            reservation = get_object_or_404(
+                Reservation.objects.select_for_update().select_related('room'),
+                pk=pk,
+            )
+            if reservation.status not in [
+                ReservationStatus.PAYMENT_PENDING,
+                ReservationStatus.CONFIRMED,
+            ]:
+                return Response(
+                    {'detail': 'Room assignment can only be changed before check-in.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            room = get_object_or_404(
+                Room.objects.select_for_update().select_related('room_type'),
+                pk=room_id,
+                is_active=True,
+            )
+            if room.status != RoomStatus.VACANT_CLEAN or room.housekeeping_status != 'CLEAN':
+                return Response(
+                    {'detail': 'Choose a clean, vacant room.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if not AvailabilityEngine.get_available_rooms(
+                reservation.check_in_date,
+                reservation.check_out_date,
+                exclude_reservation_id=reservation.pk,
+            ).filter(pk=room.pk).exists():
+                return Response(
+                    {'detail': 'This room is unavailable for the reservation dates.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            previous_room = reservation.room
+            if previous_room.pk != room.pk:
+                reservation.room = room
+                reservation.save(update_fields=['room', 'updated_at'])
+                log_audit_event(
+                    module=AuditModule.RESERVATION,
+                    action='RESERVATION_ROOM_CHANGED',
+                    details=(
+                        f'Reservation {reservation.confirmation_code} moved from '
+                        f'room {previous_room.room_number} to room {room.room_number}.'
+                    ),
+                    request=request,
+                    before_state={'room_id': str(
+                        previous_room.pk), 'room_number': previous_room.room_number},
+                    after_state={'room_id': str(
+                        room.pk), 'room_number': room.room_number},
+                )
+
+        return Response(ReservationSerializer(reservation).data)
+
     @action(detail=False, methods=['post'], url_path='check-in')
     def check_in(self, request):
         confirmation_code = request.data.get('confirmation_code')
@@ -435,15 +500,26 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 ReservationStatus.PAYMENT_PENDING,
             ]:
                 return Response({'error': 'Only pending or confirmed reservations can be cancelled.'}, status=status.HTTP_409_CONFLICT)
+            previous_status = reservation.status
             reservation.status = 'CANCELLED'
             reservation.save(update_fields=['status', 'updated_at'])
             log_audit_event(
                 module=AuditModule.RESERVATION,
                 action='RESERVATION_CANCELLED',
-                details=f'Reservation {reservation.confirmation_code} cancelled.',
+                details=(
+                    f'Reservation {reservation.confirmation_code} cancelled. '
+                    f'Payment of {reservation.deposit_paid_etb} ETB remains recorded; '
+                    'no refund was initiated.'
+                ),
                 request=request,
-                before_state={'status': 'CONFIRMED'},
-                after_state={'status': reservation.status},
+                before_state={
+                    'status': previous_status,
+                    'deposit_paid_etb': str(reservation.deposit_paid_etb),
+                },
+                after_state={
+                    'status': reservation.status,
+                    'deposit_paid_etb': str(reservation.deposit_paid_etb),
+                },
             )
 
         return Response(ReservationSerializer(reservation).data, status=status.HTTP_200_OK)

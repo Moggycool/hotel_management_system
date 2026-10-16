@@ -29,6 +29,14 @@ class IsFrontOfficeStaff(HasRole):
     ]
 
 
+class IsReservationRoomAssignmentStaff(HasRole):
+    allowed_roles = [
+        StaffRole.GENERAL_MANAGER,
+        StaffRole.FRONT_OFFICE_MANAGER,
+        StaffRole.RECEPTIONIST,
+    ]
+
+
 class IsFinanceStaff(HasRole):
     allowed_roles = [
         StaffRole.GENERAL_MANAGER,
