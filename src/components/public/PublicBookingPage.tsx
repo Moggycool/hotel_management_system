@@ -204,16 +204,20 @@ export const PublicBookingPage: React.FC = () => {
         </nav>
       </header>
 
-      <section id="top" className="relative flex min-h-[650px] items-end bg-[#244238] bg-cover bg-center pb-20 pt-28 md:min-h-[740px] md:pb-28" style={{ backgroundImage: "linear-gradient(90deg, rgba(16,34,29,.72), rgba(16,34,29,.16)), url('/hotel-hero.jpg')" }}>
-        <div className="mx-auto w-full max-w-7xl px-5 md:px-12">
+      <section id="top" className="relative overflow-hidden bg-[#244238] text-white">
+        <img src="/hotel-hero.jpg" alt="Arbaminch Tourist Hotel courtyard" className="block h-auto w-full" />
+        <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(90deg,rgba(16,34,29,.68),rgba(16,34,29,.08)_72%)] md:block" />
+        <div className="bg-[#244238] px-5 pb-12 pt-8 md:absolute md:inset-x-0 md:top-[30%] md:bg-transparent md:px-12 md:pb-0 md:pt-0">
+          <div className="mx-auto w-full max-w-7xl">
           <p className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-[#e3d39d]"><MapPin className="h-4 w-4" /> Arba Minch · Southern Ethiopia</p>
-          <h1 className="max-w-3xl font-serif text-5xl leading-[1.02] text-white md:text-7xl">A lakeside pause,<br />above the ordinary.</h1>
+          <h1 className="max-w-3xl font-serif text-4xl leading-[1.02] text-white md:text-7xl">A lakeside pause,<br />above the ordinary.</h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-white/85">{property?.tagline || 'A welcoming base for Lake Chamo, the Rift Valley, and the warmth of Arba Minch.'}</p>
           <a href="#rooms" className="mt-8 inline-flex items-center gap-3 border-b border-[#e3d39d] pb-2 text-sm font-semibold text-white">Find your stay <ArrowRight className="h-4 w-4" /></a>
+          </div>
         </div>
       </section>
 
-      <section className="relative z-10 mx-auto -mt-9 max-w-6xl px-4 md:px-8">
+      <section className="relative z-10 mx-auto max-w-6xl px-4 pt-6 md:px-8">
         <form onSubmit={searchAvailability} className="grid gap-3 bg-white p-4 shadow-[0_18px_55px_rgba(24,45,38,.14)] md:grid-cols-[1.1fr_1.1fr_1fr_1fr_auto] md:items-end md:p-5">
           <label className="block text-[11px] font-bold uppercase tracking-wider text-[#6d7872]">Check in
             <span className="mt-1.5 flex items-center gap-2 border-b border-[#d8ddd8] pb-2 text-sm text-[#20342f]"><CalendarDays className="h-4 w-4 text-[#a58b4a]" /><input className="w-full bg-transparent outline-none" type="date" min={dateString(new Date())} value={arrival} onChange={(event) => setArrival(event.target.value)} required /></span>
