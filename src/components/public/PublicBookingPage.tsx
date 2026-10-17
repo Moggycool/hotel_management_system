@@ -204,7 +204,7 @@ export const PublicBookingPage: React.FC = () => {
         </nav>
       </header>
 
-      <section id="top" className="relative flex min-h-[650px] items-end bg-[#244238] bg-cover bg-center pb-20 pt-28 md:min-h-[740px] md:pb-28" style={{ backgroundImage: "linear-gradient(90deg, rgba(16,34,29,.72), rgba(16,34,29,.16)), url('https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=2200&q=90')" }}>
+      <section id="top" className="relative flex min-h-[650px] items-end bg-[#244238] bg-cover bg-center pb-20 pt-28 md:min-h-[740px] md:pb-28" style={{ backgroundImage: "linear-gradient(90deg, rgba(16,34,29,.72), rgba(16,34,29,.16)), url('/hotel-hero.jpg')" }}>
         <div className="mx-auto w-full max-w-7xl px-5 md:px-12">
           <p className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-[#e3d39d]"><MapPin className="h-4 w-4" /> Arba Minch · Southern Ethiopia</p>
           <h1 className="max-w-3xl font-serif text-5xl leading-[1.02] text-white md:text-7xl">A lakeside pause,<br />above the ordinary.</h1>
