@@ -17,10 +17,12 @@ Including another URLconf
 # config/urls.py
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic.base import RedirectView
 from apps.accounts.auth_views import current_user
 from apps.properties.views import CurrentPropertyConfigView
 
 urlpatterns = [
+    path('', RedirectView.as_view(url='/admin/', permanent=False), name='home'),
     path('admin/', admin.site.urls),
     path('api/v1/auth/me/', current_user, name='current-user'),
     path('api/v1/properties/current/', CurrentPropertyConfigView.as_view(),
