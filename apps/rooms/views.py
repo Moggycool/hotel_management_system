@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -14,7 +15,7 @@ from apps.rooms.serializers import (
     RoomTypeSerializer,
 )
 from apps.rooms.services import AvailabilityEngine
-from apps.accounts.permissions import IsFrontOfficeStaff, IsGeneralManager
+from apps.accounts.permissions import IsGeneralManager, IsRoomManagementStaff
 from apps.audit.mixins import AuditedModelViewSetMixin
 from apps.audit.models import AuditModule
 
@@ -53,7 +54,7 @@ class RatePlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
 
 
 class RoomViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
-    queryset = Room.objects.select_related('room_type').all()
+    queryset = Room.objects.select_related('room_type').filter(is_active=True)
     serializer_class = RoomSerializer
     audit_module = AuditModule.ROOMS
     audit_name = 'ROOM'
@@ -65,11 +66,41 @@ class RoomViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         return super().get_throttles()
 
     def get_permissions(self):
-        permission_class = AllowAny if self.action == 'public_availability' else (
-            IsAuthenticated if self.action in ['list', 'retrieve', 'availability']
-            else IsFrontOfficeStaff
-        )
+        if self.action == 'public_availability':
+            permission_class = AllowAny
+        elif self.action in ['list', 'retrieve', 'availability']:
+            permission_class = IsAuthenticated
+        else:
+            permission_class = IsRoomManagementStaff
         return [permission_class()]
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        room = Room.objects.select_for_update().get(pk=instance.pk)
+        active_reservation = room.reservations.filter(
+            status__in=['PAYMENT_PENDING', 'CONFIRMED', 'CHECKED_IN'],
+        ).first()
+        if active_reservation:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({
+                'detail': (
+                    f'Room {room.room_number} cannot be removed while reservation '
+                    f'{active_reservation.confirmation_code} is active.'
+                ),
+            })
+
+        before_state = self.audit_snapshot(room)
+        room.is_active = False
+        room.save(update_fields=['is_active'])
+        from apps.audit.services import log_audit_event
+        log_audit_event(
+            module=self.audit_module,
+            action='ROOM_DEACTIVATED',
+            details=f'Room {room.room_number} was removed from active inventory.',
+            request=self.request,
+            before_state=before_state,
+            after_state={**before_state, 'is_active': False},
+        )
 
     @action(detail=False, methods=['get'], url_path='availability')
     def availability(self, request):

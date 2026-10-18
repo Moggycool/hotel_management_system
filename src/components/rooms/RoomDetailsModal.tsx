@@ -11,6 +11,7 @@ import {
   User,
   Calendar,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 import { Room, RoomStatus, HousekeepingStatus } from '../../types/hotel';
 import { useHotel } from '../../context/HotelContext';
@@ -26,7 +27,10 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
   onClose,
   onBookRoom,
 }) => {
-  const { saveRoom, reservations } = useHotel();
+  const { saveRoom, deactivateRoom, reservations, currentRole } = useHotel();
+  const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
+  const [roomNumber, setRoomNumber] = useState(room.roomNumber);
+  const [floor, setFloor] = useState(room.floor);
   const [selectedStatus, setSelectedStatus] = useState<RoomStatus>(room.status);
   const [selectedHousekeeping, setSelectedHousekeeping] = useState<HousekeepingStatus>(
     room.housekeepingStatus
@@ -44,6 +48,8 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
     setSaveError('');
     try {
       await saveRoom(room.id, {
+        roomNumber: roomNumber.trim(),
+        floor: Number(floor),
         status: selectedStatus,
         housekeepingStatus: selectedHousekeeping,
         notes,
@@ -51,6 +57,20 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
       onClose();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save room changes.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!window.confirm(`Remove Room ${room.roomNumber} from active inventory? Historical reservations will be retained.`)) return;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await deactivateRoom(room.id);
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not remove room from active inventory.');
     } finally {
       setIsSaving(false);
     }
@@ -158,6 +178,14 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
 
           {/* Operational Status Controls */}
           <div className="pt-2 border-t border-slate-200 space-y-4">
+            {canManageRooms && <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-bold text-slate-700">Room number
+                <input required maxLength={10} value={roomNumber} onChange={(event) => setRoomNumber(event.target.value)} className="mt-1 w-full border border-slate-300 bg-white p-2 font-mono text-sm" />
+              </label>
+              <label className="text-xs font-bold text-slate-700">Floor
+                <input required type="number" min="1" max="99" value={floor} onChange={(event) => setFloor(Number(event.target.value))} className="mt-1 w-full border border-slate-300 bg-white p-2 text-sm" />
+              </label>
+            </div>}
             <div>
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                 Room Occupancy Status
@@ -242,8 +270,16 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
             <div />
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {saveError && <span role="alert" className="max-w-52 text-xs text-rose-700">{saveError}</span>}
+            {canManageRooms && <button
+              onClick={() => void handleDeactivate()}
+              disabled={isSaving || Boolean(currentRes)}
+              title={currentRes ? 'A checked-in guest occupies this room.' : 'Remove this room from active inventory'}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Remove room
+            </button>}
             <button
               onClick={onClose}
               disabled={isSaving}
@@ -251,13 +287,13 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
             >
               Cancel
             </button>
-            <button
+            {canManageRooms && <button
               onClick={handleSave}
               disabled={isSaving}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
             >
               {isSaving ? 'Saving...' : 'Save Updates'}
-            </button>
+            </button>}
           </div>
         </div>
       </div>

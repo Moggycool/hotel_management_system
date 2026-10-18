@@ -113,6 +113,7 @@ interface HotelContextType {
   updateRoomStatus: (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => void;
   updateRoom: (roomId: string, updates: Partial<Room>) => void;
   saveRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
+  deactivateRoom: (roomId: string) => Promise<void>;
   addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => Promise<void>;
   assignHousekeeper: (roomId: string, staffName: string) => void;
   updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => Promise<boolean>;
@@ -866,6 +867,11 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     setRooms((prev) => prev.map((room) => room.id === roomId ? updatedRoom : room));
   };
 
+  const deactivateRoom = async (roomId: string) => {
+    await hotelApi.deactivateRoomInDjango(roomId);
+    setRooms((prev) => prev.filter((room) => room.id !== roomId));
+  };
+
   const addRoom = async (roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => {
     const createdRoom = await hotelApi.createRoomInDjango(roomData);
     setRooms((prev) => [...prev, createdRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
@@ -1546,6 +1552,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         updateRoomStatus,
         updateRoom,
         saveRoom,
+        deactivateRoom,
         addRoom,
         assignHousekeeper,
         updateHousekeepingStatus,

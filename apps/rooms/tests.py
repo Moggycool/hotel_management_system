@@ -214,6 +214,96 @@ def test_room_api_creates_and_updates_room(setup_rooms):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    'role', [StaffRole.RECEPTIONIST, StaffRole.FRONT_OFFICE_MANAGER],
+)
+def test_front_desk_can_edit_room_number_and_floor(setup_rooms, role):
+    staff = User.objects.create_user(
+        email=f'{role.lower()}-room-edit@example.et',
+        password='StrongPassword#2026',
+        full_name='Front Desk Room Editor',
+        role=role,
+    )
+
+    response = authenticated_client(staff).patch(
+        f'/api/v1/rooms/{setup_rooms["r1"].pk}/',
+        {'room_number': '211', 'floor': 3},
+        format='json',
+    )
+
+    assert response.status_code == 200, response.data
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].room_number == '211'
+    assert setup_rooms['r1'].floor == 3
+
+
+@pytest.mark.django_db
+def test_front_desk_can_remove_unbooked_room_without_deleting_history(setup_rooms):
+    client = authenticated_client(setup_rooms['user'])
+
+    response = client.delete(f'/api/v1/rooms/{setup_rooms["r1"].pk}/')
+
+    assert response.status_code == 204
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].is_active is False
+    assert not client.get('/api/v1/rooms/').data or all(
+        item['id'] != str(setup_rooms['r1'].pk)
+        for item in client.get('/api/v1/rooms/').data
+    )
+
+
+@pytest.mark.django_db
+def test_room_with_active_reservation_cannot_be_removed(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-ROOM-ACTIVE-DELETE',
+        guest=setup_rooms['guest'],
+        room=setup_rooms['r1'],
+        rate_plan=setup_rooms['rp'],
+        check_in_date=today + timedelta(days=1),
+        check_out_date=today + timedelta(days=2),
+        status=ReservationStatus.CONFIRMED,
+        room_rate_total_etb=Decimal('5000.00'),
+        service_charge_etb=Decimal('500.00'),
+        vat_etb=Decimal('750.00'),
+        grand_total_etb=Decimal('6250.00'),
+    )
+
+    response = authenticated_client(setup_rooms['user']).delete(
+        f'/api/v1/rooms/{setup_rooms["r1"].pk}/')
+
+    assert response.status_code == 400
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].is_active is True
+    assert Reservation.objects.filter(pk=reservation.pk).exists()
+
+
+@pytest.mark.django_db
+def test_non_front_desk_role_cannot_edit_or_remove_room(setup_rooms):
+    housekeeper = User.objects.create_user(
+        email='housekeeper-room-mutation@example.et',
+        password='StrongPassword#2026',
+        full_name='Room Mutation Housekeeper',
+        role=StaffRole.HOUSEKEEPER,
+    )
+    client = authenticated_client(housekeeper)
+
+    edit_response = client.patch(
+        f'/api/v1/rooms/{setup_rooms["r1"].pk}/',
+        {'room_number': '212'},
+        format='json',
+    )
+    delete_response = client.delete(
+        f'/api/v1/rooms/{setup_rooms["r1"].pk}/')
+
+    assert edit_response.status_code == 403
+    assert delete_response.status_code == 403
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].room_number == '201'
+    assert setup_rooms['r1'].is_active is True
+
+
+@pytest.mark.django_db
 def test_housekeeping_role_cannot_write_room_inventory(setup_rooms):
     housekeeper = User.objects.create_user(
         email='housekeeper-room-test@example.et',

@@ -22,7 +22,8 @@ interface RoomsTabProps {
 }
 
 export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
-  const { rooms, searchQuery, updateRoomStatus, reservations } = useHotel();
+  const { rooms, searchQuery, updateRoomStatus, reservations, currentRole } = useHotel();
+  const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -114,13 +115,13 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
             </button>
           </div>
 
-          <button
+          {canManageRooms && <button
             onClick={() => setIsAddRoomOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Room</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -392,7 +393,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
       )}
 
       {/* Add Room Modal */}
-      {isAddRoomOpen && <AddRoomModal onClose={() => setIsAddRoomOpen(false)} />}
+      {isAddRoomOpen && canManageRooms && <AddRoomModal onClose={() => setIsAddRoomOpen(false)} />}
     </div>
   );
 };

@@ -1811,6 +1811,8 @@ export const hotelApi = {
   async updateRoomInDjango(roomId: string, updates: Partial<Room>): Promise<Room> {
     const payload: Record<string, unknown> = {};
     if (updates.notes !== undefined) payload.notes = updates.notes;
+    if (updates.roomNumber !== undefined) payload.room_number = updates.roomNumber.trim();
+    if (updates.floor !== undefined) payload.floor = updates.floor;
 
     if (updates.status !== undefined) {
       const statusMap: Partial<Record<Room['status'], string>> = {
@@ -1855,6 +1857,24 @@ export const hotelApi = {
       }
     }
 
+    throw new Error(lastError);
+  },
+
+  async deactivateRoomInDjango(roomId: string): Promise<void> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/${encodeURIComponent(roomId)}/`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok || response.status === 204) return;
+        const payload = await response.json().catch(() => ({}));
+        lastError = payload.detail || JSON.stringify(payload) || `Django returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Failed to remove room from active inventory.';
+      }
+    }
     throw new Error(lastError);
   },
 
