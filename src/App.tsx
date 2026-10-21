@@ -207,7 +207,9 @@ export function App() {
   const handleLogout = () => {
     clearApiAuthentication();
     setStaff(null);
-    navigateToPublic();
+    setLoginError('');
+    if (!staffPath()) window.history.pushState({}, '', '/staff');
+    setAppMode('staff');
   };
 
   if (appMode === 'public') {
