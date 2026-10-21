@@ -20,6 +20,38 @@ class StaffRole(models.TextChoices):
     SYSTEM_ADMIN = 'SYSTEM_ADMIN', 'System Administrator'
 
 
+class AccessArea(models.TextChoices):
+    FRONT_OFFICE = 'front_office', 'Front office (guests, reservations)'
+    RESERVATION_ASSIGNMENT = 'reservation_assignment', 'Reservation room assignment'
+    ROOM_MANAGEMENT = 'room_management', 'Room management'
+    FINANCE = 'finance', 'Billing and finance'
+    HOUSEKEEPING = 'housekeeping', 'Housekeeping'
+    NIGHT_AUDIT = 'night_audit', 'Night audit'
+    RESTAURANT = 'restaurant', 'Restaurant / POS'
+    RESTAURANT_SETTLEMENT = 'restaurant_settlement', 'Restaurant settlement'
+    RESTAURANT_MENU = 'restaurant_menu', 'Restaurant menu management'
+    INVENTORY = 'inventory', 'Inventory / store'
+    RECIPES = 'recipes', 'Recipe management'
+
+
+class Role(models.Model):
+    code = models.SlugField(
+        max_length=30, unique=True,
+        help_text='Permanent identifier, e.g. STORE_SUPERVISOR. Cannot be changed after saving.')
+    name = models.CharField(max_length=60, unique=True)
+    access_areas = models.JSONField(
+        default=list, blank=True,
+        help_text='Areas this role can work in. Built-in roles use fixed access.')
+    is_builtin = models.BooleanField(default=False, editable=False)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -46,9 +78,9 @@ class User(AbstractUser):
     role = models.CharField(
         'Staff Role',
         max_length=30,
-        choices=StaffRole.choices,
         default=StaffRole.RECEPTIONIST,
         db_index=True,
+        help_text='Code of a Role defined under Roles.',
     )
     is_mfa_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -64,6 +96,16 @@ class User(AbstractUser):
         verbose_name = 'Staff User'
         verbose_name_plural = 'Staff Users'
         ordering = ['full_name']
+
+    def get_role_display(self):
+        role = Role.objects.filter(code=self.role).first()
+        return role.name if role else self.role
+
+    def role_access_areas(self):
+        if not hasattr(self, '_role_access_areas'):
+            role = Role.objects.filter(code=self.role, is_active=True).first()
+            self._role_access_areas = set(role.access_areas) if role else set()
+        return self._role_access_areas
 
     def __str__(self):
         return f"{self.full_name} ({self.get_role_display()})"

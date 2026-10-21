@@ -23,7 +23,7 @@ export const Milestone1AuditTab: React.FC = () => {
   const [selectedModuleFilter, setSelectedModuleFilter] = useState<string>('ALL');
 
   // Role permissions definitions for Milestone 1 RBAC
-  const rolePermissions: Record<StaffRole, { title: string; canDo: string[]; restricted: string[] }> = {
+  const rolePermissions: Record<string, { title: string; canDo: string[]; restricted: string[] }> = {
     'General Manager': {
       title: 'Full Property Oversight & Governance',
       canDo: [

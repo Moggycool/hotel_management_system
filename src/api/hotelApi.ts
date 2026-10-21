@@ -793,7 +793,7 @@ export const hotelApi = {
           id: payload.id,
           email: payload.email,
           fullName: payload.full_name,
-          role: roles[payload.role] || 'Receptionist',
+          role: roles[payload.role] || payload.role_display || 'Receptionist',
         };
         basicAuthorizationHeader = authorization;
         return staff;

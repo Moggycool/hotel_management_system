@@ -57,7 +57,8 @@ export type StaffRole =
   | 'Purchasing Officer'
   | 'Finance Officer'
   | 'Maintenance Technician'
-  | 'System Administrator';
+  | 'System Administrator'
+  | (string & {});
 
 export interface AuditLogEntry {
   id: string;
