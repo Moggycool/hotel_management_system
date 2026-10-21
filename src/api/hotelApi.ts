@@ -191,7 +191,11 @@ function mapBackendRoom(record: any): Room {
     capacity: Number(record.room_type.max_adults) + Number(record.room_type.max_children),
     bedType: record.room_type.bed_type,
     sizeSqFt: Math.round(Number(record.room_type.size_sqm) * 10.7639),
-    amenities: record.room_type.amenities,
+    amenities: Array.isArray(record.room_type.amenities)
+      ? record.room_type.amenities.map(String)
+      : typeof record.room_type.amenities === 'string'
+        ? record.room_type.amenities.split(',').map((item: string) => item.trim()).filter(Boolean)
+        : [],
     status: ({
       VACANT_CLEAN: 'available',
       VACANT_DIRTY: 'cleaning',
