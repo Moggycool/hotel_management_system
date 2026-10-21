@@ -39,7 +39,7 @@ import {
   initialNightAuditReports,
   getRelativeDate,
 } from '../data/initialData';
-import { hotelApi } from '../api/hotelApi';
+import { hotelApi, RoomTypeRecord } from '../api/hotelApi';
 
 interface HotelContextType {
   rooms: Room[];
@@ -115,6 +115,8 @@ interface HotelContextType {
   saveRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
   deactivateRoom: (roomId: string) => Promise<void>;
   addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => Promise<void>;
+  roomTypes: RoomTypeRecord[];
+  renameRoomType: (roomTypeId: string, name: string) => Promise<void>;
   assignHousekeeper: (roomId: string, staffName: string) => void;
   updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => Promise<boolean>;
   createHousekeepingTask: (task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>) => Promise<boolean>;
@@ -197,6 +199,7 @@ const STORAGE_KEYS = {
 
 export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRole }> = ({ children, initialRole }) => {
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
+  const [roomTypes, setRoomTypes] = useState<RoomTypeRecord[]>([]);
 
   const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
 
@@ -270,6 +273,20 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
       localStorage.setItem('ah_audit_logs_v1', JSON.stringify(auditLogs));
     } catch {}
   }, [auditLogs]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    hotelApi.fetchRoomTypesFromDjango()
+      .then((types) => {
+        if (isCurrent) setRoomTypes(types);
+      })
+      .catch(() => {});
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -875,6 +892,16 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
   const addRoom = async (roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => {
     const createdRoom = await hotelApi.createRoomInDjango(roomData);
     setRooms((prev) => [...prev, createdRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
+  };
+
+  const renameRoomType = async (roomTypeId: string, name: string) => {
+    const oldName = roomTypes.find((type) => type.id === roomTypeId)?.name;
+    const updated = await hotelApi.renameRoomTypeInDjango(roomTypeId, name.trim());
+    setRoomTypes((prev) => prev.map((type) => type.id === roomTypeId ? updated : type));
+    if (!oldName) return;
+    setRooms((prev) => prev.map((room) => room.type === oldName ? { ...room, type: updated.name } : room));
+    setReservations((prev) => prev.map((res) => res.roomType === oldName ? { ...res, roomType: updated.name } : res));
+    setHousekeepingTasks((prev) => prev.map((task) => task.roomType === oldName ? { ...task, roomType: updated.name } : task));
   };
 
   const assignHousekeeper = (roomId: string, staffName: string) => {
@@ -1554,6 +1581,8 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         saveRoom,
         deactivateRoom,
         addRoom,
+        roomTypes,
+        renameRoomType,
         assignHousekeeper,
         updateHousekeepingStatus,
         createHousekeepingTask,

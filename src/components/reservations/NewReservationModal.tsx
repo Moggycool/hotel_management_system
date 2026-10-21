@@ -88,7 +88,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
   // Milestone 2 Front Desk & Rate Plan Fields
   const [bookingSource, setBookingSource] = useState<'walk_in' | 'website' | 'phone' | 'corporate' | 'agent'>('walk_in');
   const [ratePlan, setRatePlan] = useState<'standard' | 'resident' | 'corporate' | 'safari'>('standard');
-  const [idType, setIdType] = useState<'fayda' | 'kebele' | 'passport' | 'drivers_license'>('fayda');
+  const [idType, setIdType] = useState<'fayda' | 'kebele' | 'passport' | 'drivers_license' | 'other'>('fayda');
   const [idNumber, setIdNumber] = useState('');
 
   // Payment

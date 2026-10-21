@@ -16,14 +16,17 @@ import { useHotel } from '../../context/HotelContext';
 import { Room, RoomStatus, RoomType, HousekeepingStatus } from '../../types/hotel';
 import { RoomDetailsModal } from './RoomDetailsModal';
 import { AddRoomModal } from './AddRoomModal';
+import { RoomTypeNamesModal } from './RoomTypeNamesModal';
 
 interface RoomsTabProps {
   onBookRoom: (room: Room) => void;
 }
 
 export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
-  const { rooms, searchQuery, updateRoomStatus, reservations, currentRole } = useHotel();
+  const { rooms, searchQuery, updateRoomStatus, reservations, currentRole, roomTypes } = useHotel();
   const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
+  const canRenameRoomTypes = ['General Manager', 'System Administrator'].includes(currentRole);
+  const [isRenameTypesOpen, setIsRenameTypesOpen] = useState(false);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -115,6 +118,13 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
             </button>
           </div>
 
+          {canRenameRoomTypes && roomTypes.length > 0 && <button
+            onClick={() => setIsRenameTypesOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-xs transition-colors cursor-pointer"
+          >
+            <span>Rename Room Types</span>
+          </button>}
+
           {canManageRooms && <button
             onClick={() => setIsAddRoomOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors cursor-pointer"
@@ -187,12 +197,9 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
               className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
             >
               <option value="all">All Room Types</option>
-              <option value="Standard King">Standard King</option>
-              <option value="Deluxe Ocean View">Deluxe Ocean View</option>
-              <option value="Executive Suite">Executive Suite</option>
-              <option value="Presidential Penthouse">Presidential Penthouse</option>
-              <option value="Garden Villa">Garden Villa</option>
-              <option value="Family Suite">Family Suite</option>
+              {Array.from(new Set([...roomTypes.map((t) => t.name), ...rooms.map((r) => r.type)])).map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -394,6 +401,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
 
       {/* Add Room Modal */}
       {isAddRoomOpen && canManageRooms && <AddRoomModal onClose={() => setIsAddRoomOpen(false)} />}
+      {isRenameTypesOpen && canRenameRoomTypes && <RoomTypeNamesModal onClose={() => setIsRenameTypesOpen(false)} />}
     </div>
   );
 };

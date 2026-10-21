@@ -78,6 +78,12 @@ export const getCandidateUrls = (): string[] => {
   return Array.from(new Set(urls));
 };
 
+export interface RoomTypeRecord {
+  id: string;
+  name: string;
+  nameAmharic: string;
+}
+
 export interface ApiReservationPayload {
   guest_name: string;
   guest_email?: string;
@@ -176,17 +182,11 @@ export interface PublicBookingResult {
 }
 
 function mapBackendRoom(record: any): Room {
-  const uiRoomTypes: Record<string, Room['type']> = {
-    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
-    'Nechisar Executive Suite': 'Executive Suite',
-    'Garden Family Villa': 'Garden Villa',
-  };
-
   return {
     id: record.id,
     roomNumber: record.room_number,
     floor: record.floor,
-    type: uiRoomTypes[record.room_type.name] || record.room_type.name as Room['type'],
+    type: record.room_type.name as Room['type'],
     pricePerNight: Number(record.room_type.base_price_etb),
     capacity: Number(record.room_type.max_adults) + Number(record.room_type.max_children),
     bedType: record.room_type.bed_type,
@@ -210,11 +210,6 @@ function mapBackendRoom(record: any): Room {
 
 function mapBackendReservation(record: any): Reservation {
   const backendRoomType = record.room_type_display || record.room_type?.name || '';
-  const roomTypes: Record<string, Reservation['roomType']> = {
-    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
-    'Nechisar Executive Suite': 'Executive Suite',
-    'Garden Family Villa': 'Garden Villa',
-  };
   const statuses: Record<string, Reservation['status']> = {
     DRAFT: 'confirmed',
     PAYMENT_PENDING: 'payment_pending',
@@ -240,7 +235,7 @@ function mapBackendReservation(record: any): Reservation {
     guestPhone: record.guest_phone_display || '',
     roomId: String(record.room),
     roomNumber: record.room_number_display || '',
-    roomType: roomTypes[backendRoomType] || backendRoomType as Reservation['roomType'],
+    roomType: backendRoomType as Reservation['roomType'],
     checkInDate: String(record.check_in_date).slice(0, 10),
     checkOutDate: String(record.check_out_date).slice(0, 10),
     nights: Math.max(1, Math.round((Date.parse(`${record.check_out_date}T00:00:00Z`) - Date.parse(`${record.check_in_date}T00:00:00Z`)) / 86400000)),
@@ -280,6 +275,7 @@ function mapBackendGuest(record: any): Guest {
     phone: record.phone_number || '',
     idNumber: record.id_number || '',
     idType: String(record.id_type || 'FAYDA').toLowerCase() as Guest['idType'],
+    hasIdDocument: Boolean(record.has_id_document),
     nationality: record.nationality || '',
     vipTier: vipTiers[record.vip_tier] || 'Regular',
     totalStays: Number(record.total_stays || 0),
@@ -302,18 +298,13 @@ function mapBackendHousekeepingTask(record: any): HousekeepingTask {
     NORMAL: 'normal',
     HIGH: 'high',
   };
-  const roomTypes: Record<string, HousekeepingTask['roomType']> = {
-    'Deluxe Lake Chamo View': 'Deluxe Ocean View',
-    'Nechisar Executive Suite': 'Executive Suite',
-    'Garden Family Villa': 'Garden Villa',
-  };
   const roomType = record.room_type || '';
 
   return {
     id: String(record.id),
     roomId: String(record.room),
     roomNumber: record.room_number,
-    roomType: roomTypes[roomType] || roomType as HousekeepingTask['roomType'],
+    roomType: roomType as HousekeepingTask['roomType'],
     status: statuses[record.status] || 'dirty',
     priority: priorities[record.priority] || 'normal',
     assignedTo: record.assigned_to_name || 'Unassigned',
@@ -1203,27 +1194,27 @@ export const hotelApi = {
       kebele: 'KEBELE',
       passport: 'PASSPORT',
       drivers_license: 'DRIVERS_LICENSE',
+      other: 'OTHER',
     };
     let lastError = 'Django backend is unavailable.';
+
+    const form = new FormData();
+    form.append('full_name', guest.fullName);
+    form.append('email', guest.email);
+    form.append('phone_number', guest.phone);
+    form.append('id_type', idTypes[guest.idType || 'fayda']);
+    form.append('id_number', guest.idNumber);
+    form.append('nationality', guest.nationality);
+    form.append('vip_tier', guest.vipTier.toUpperCase());
+    form.append('preferences', guest.specialPreferences);
+    if (guest.idDocumentFile) form.append('id_document', guest.idDocumentFile);
 
     for (const baseUrl of getCandidateUrls()) {
       try {
         const response = await apiFetch(`${baseUrl}/guests/`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            full_name: guest.fullName,
-            email: guest.email,
-            phone_number: guest.phone,
-            id_type: idTypes[guest.idType || 'fayda'],
-            id_number: guest.idNumber,
-            nationality: guest.nationality,
-            vip_tier: guest.vipTier.toUpperCase(),
-            preferences: guest.specialPreferences,
-          }),
+          headers: { Accept: 'application/json' },
+          body: form,
         });
         const payload = await response.json().catch(() => ({}));
         if (response.ok) return mapBackendGuest(payload);
@@ -1233,6 +1224,20 @@ export const hotelApi = {
       }
     }
 
+    throw new Error(lastError);
+  },
+
+  async fetchGuestIdDocument(guestId: string): Promise<Blob> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/guests/${guestId}/id-document/`);
+        if (response.ok) return await response.blob();
+        lastError = `Could not load the ID document (HTTP ${response.status}).`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
     throw new Error(lastError);
   },
 
@@ -1878,17 +1883,53 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async createRoomInDjango(roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>): Promise<Room> {
-    const backendTypeNames: Partial<Record<Room['type'], string>> = {
-      'Standard King': 'Standard King',
-      'Deluxe Ocean View': 'Deluxe Lake Chamo View',
-      'Executive Suite': 'Nechisar Executive Suite',
-      'Garden Villa': 'Garden Family Villa',
-    };
-    const backendTypeName = backendTypeNames[roomData.type];
-    if (!backendTypeName) {
-      throw new Error(`Room type "${roomData.type}" is not configured in Django.`);
+  async fetchRoomTypesFromDjango(): Promise<RoomTypeRecord[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/room-types/`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          const records = Array.isArray(payload) ? payload : payload.results || [];
+          return records.map((record: any) => ({
+            id: String(record.id),
+            name: record.name,
+            nameAmharic: record.name_amharic || '',
+          }));
+        }
+        lastError = `Django returned HTTP ${response.status} while loading room types.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
     }
+    throw new Error(lastError);
+  },
+
+  async renameRoomTypeInDjango(roomTypeId: string, name: string): Promise<RoomTypeRecord> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/room-types/${encodeURIComponent(roomTypeId)}/`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return { id: String(payload.id), name: payload.name, nameAmharic: payload.name_amharic || '' };
+        }
+        lastError = payload.name?.[0] || payload.detail || `Django returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createRoomInDjango(roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>): Promise<Room> {
+    const backendTypeName = roomData.type;
 
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {

@@ -1,10 +1,4 @@
-export type RoomType = 
-  | 'Standard King'
-  | 'Deluxe Ocean View'
-  | 'Executive Suite'
-  | 'Presidential Penthouse'
-  | 'Garden Villa'
-  | 'Family Suite';
+export type RoomType = string;
 
 export type RoomStatus = 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
 
@@ -124,7 +118,9 @@ export interface Guest {
   email: string;
   phone: string;
   idNumber: string; // Passport / Fayda / Kebele
-  idType?: 'fayda' | 'kebele' | 'passport' | 'drivers_license';
+  idType?: 'fayda' | 'kebele' | 'passport' | 'drivers_license' | 'other';
+  hasIdDocument?: boolean;
+  idDocumentFile?: File | null;
   nationality: string;
   vipTier: 'Regular' | 'Silver' | 'Gold' | 'Platinum';
   totalStays: number;

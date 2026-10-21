@@ -8,6 +8,7 @@ class IDType(models.TextChoices):
     KEBELE = 'KEBELE', 'Kebele Resident ID (የቀበሌ መታወቂያ)'
     PASSPORT = 'PASSPORT', 'International Passport'
     DRIVERS_LICENSE = 'DRIVERS_LICENSE', 'Driver License (መንጃ ፈቃድ)'
+    OTHER = 'OTHER', 'Other'
 
 
 class VIPTier(models.TextChoices):
@@ -25,6 +26,7 @@ class Guest(models.Model):
     id_type = models.CharField(
         max_length=20, choices=IDType.choices, default=IDType.FAYDA)
     id_number = models.CharField(max_length=50, db_index=True, blank=True)
+    id_document = models.FileField(upload_to='guest_ids/', blank=True)
     nationality = models.CharField(max_length=50, default='Ethiopian')
     vip_tier = models.CharField(
         max_length=15, choices=VIPTier.choices, default=VIPTier.REGULAR)

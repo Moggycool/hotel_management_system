@@ -1,4 +1,6 @@
+from django.http import FileResponse, Http404
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from apps.guests.models import Guest
@@ -19,3 +21,10 @@ class GuestViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         permission_class = IsAuthenticated if self.action in [
             'list', 'retrieve'] else IsFrontOfficeStaff
         return [permission_class()]
+
+    @action(detail=True, methods=['get'], url_path='id-document')
+    def id_document(self, request, pk=None):
+        guest = self.get_object()
+        if not guest.id_document:
+            raise Http404('No ID document uploaded.')
+        return FileResponse(guest.id_document.open('rb'))

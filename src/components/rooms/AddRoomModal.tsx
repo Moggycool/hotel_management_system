@@ -8,10 +8,13 @@ interface AddRoomModalProps {
 }
 
 export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
-  const { addRoom, rooms } = useHotel();
+  const { addRoom, rooms, roomTypes } = useHotel();
   const [roomNumber, setRoomNumber] = useState('');
   const [floor, setFloor] = useState(1);
-  const [type, setType] = useState<RoomType>('Standard King');
+  const typeNames = roomTypes.length > 0
+    ? roomTypes.map((t) => t.name)
+    : Array.from(new Set(rooms.map((r) => r.type)));
+  const [type, setType] = useState<RoomType>(typeNames[0] || 'Standard King');
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -97,10 +100,9 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
               onChange={(e) => setType(e.target.value as RoomType)}
               className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             >
-              <option value="Standard King">Standard King</option>
-              <option value="Deluxe Ocean View">Deluxe Ocean View</option>
-              <option value="Executive Suite">Executive Suite</option>
-              <option value="Garden Villa">Garden Villa</option>
+              {typeNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
             </select>
           </div>
 

@@ -15,7 +15,18 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
+import { hotelApi } from '../../api/hotelApi';
 import { Guest, Reservation } from '../../types/hotel';
+
+const ID_TYPE_LABELS: Record<NonNullable<Guest['idType']>, string> = {
+  fayda: 'Fayda National ID',
+  kebele: 'Kebele ID',
+  passport: 'Passport',
+  drivers_license: "Driver's License",
+  other: 'Other',
+};
+
+const MAX_ID_FILE_BYTES = 5 * 1024 * 1024;
 
 interface GuestsTabProps {
   onSelectReservation: (res: Reservation) => void;
@@ -35,6 +46,8 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [idNumber, setIdNumber] = useState('');
+  const [idType, setIdType] = useState<NonNullable<Guest['idType']>>('fayda');
+  const [idFile, setIdFile] = useState<File | null>(null);
   const [nationality, setNationality] = useState('United States');
   const [vipTier, setVipTier] = useState<Guest['vipTier']>('Regular');
   const [preferences, setPreferences] = useState('');
@@ -64,6 +77,8 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
         email,
         phone,
         idNumber: idNumber || `ID-${Math.floor(100000 + Math.random() * 900000)}`,
+        idType,
+        idDocumentFile: idFile,
         nationality,
         vipTier,
         specialPreferences: preferences,
@@ -73,12 +88,22 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
       setEmail('');
       setPhone('');
       setIdNumber('');
+      setIdFile(null);
       setPreferences('');
       setIsNewGuestOpen(false);
     } catch (error) {
       setGuestSaveError(error instanceof Error ? error.message : 'Could not save the guest profile.');
     } finally {
       setIsSavingGuest(false);
+    }
+  };
+
+  const handleViewIdDocument = async (guestId: string) => {
+    try {
+      const blob = await hotelApi.fetchGuestIdDocument(guestId);
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not open the ID document.');
     }
   };
 
@@ -220,8 +245,28 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
                   <span className="font-medium text-slate-900">{selectedGuest.phone || '—'}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-slate-500">ID Type:</span>
+                  <span className="font-medium text-slate-900">
+                    {ID_TYPE_LABELS[selectedGuest.idType || 'fayda']}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-slate-500">Govt ID / Passport:</span>
                   <span className="font-mono text-slate-900">{selectedGuest.idNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">ID Document:</span>
+                  {selectedGuest.hasIdDocument ? (
+                    <button
+                      type="button"
+                      onClick={() => handleViewIdDocument(selectedGuest.id)}
+                      className="font-bold text-indigo-600 hover:underline"
+                    >
+                      View uploaded ID
+                    </button>
+                  ) : (
+                    <span className="text-slate-400">Not uploaded</span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Lifetime Revenue:</span>
@@ -347,7 +392,19 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">Passport / ID</label>
+                  <label className="font-bold text-slate-700 block mb-1">ID Type</label>
+                  <select
+                    value={idType}
+                    onChange={(e) => setIdType(e.target.value as NonNullable<Guest['idType']>)}
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                  >
+                    {Object.entries(ID_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">ID Number</label>
                   <input
                     type="text"
                     placeholder="PASSPORT-US-99120"
@@ -356,19 +413,40 @@ export const GuestsTab: React.FC<GuestsTabProps> = ({
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
                   />
                 </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">VIP Tier</label>
-                  <select
-                    value={vipTier}
-                    onChange={(e) => setVipTier(e.target.value as any)}
-                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value="Regular">Regular</option>
-                    <option value="Silver">Silver</option>
-                    <option value="Gold">Gold</option>
-                    <option value="Platinum">Platinum</option>
-                  </select>
-                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Upload ID (JPG, PNG or PDF, max 5 MB)</label>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    if (file && file.size > MAX_ID_FILE_BYTES) {
+                      setGuestSaveError('ID file must be 5 MB or smaller.');
+                      e.target.value = '';
+                      setIdFile(null);
+                      return;
+                    }
+                    setGuestSaveError('');
+                    setIdFile(file);
+                  }}
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">VIP Tier</label>
+                <select
+                  value={vipTier}
+                  onChange={(e) => setVipTier(e.target.value as any)}
+                  className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                >
+                  <option value="Regular">Regular</option>
+                  <option value="Silver">Silver</option>
+                  <option value="Gold">Gold</option>
+                  <option value="Platinum">Platinum</option>
+                </select>
               </div>
 
               <div>
