@@ -74,6 +74,9 @@ export const getCandidateUrls = (): string[] => {
   if (custom && custom.trim()) {
     urls.push(custom.trim().replace(/\/$/, ''));
   }
+  if (import.meta.env.VITE_API_URL) {
+    urls.push(String(import.meta.env.VITE_API_URL).trim().replace(/\/$/, ''));
+  }
   urls.push('/api/v1');
   return Array.from(new Set(urls));
 };
