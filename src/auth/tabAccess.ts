@@ -11,15 +11,15 @@ const BUILTIN_ROLE_TABS: Record<string, ActiveTab[]> = {
   'System Administrator': ALL_TABS,
   'Front Office Manager': ['dashboard', 'rooms', 'reservations', 'guests', 'billing', 'night_audit', 'calendar', 'housekeeping', 'guest_feedback'],
   'Receptionist': ['dashboard', 'rooms', 'reservations', 'guests', 'calendar'],
-  'Cashier': ['dashboard', 'reservations', 'guests', 'billing', 'pos', 'night_audit'],
-  'Housekeeping Supervisor': ['dashboard', 'housekeeping', 'rooms'],
+  'Cashier': ['dashboard', 'guests', 'billing', 'pos'],
+  'Housekeeping Supervisor': ['dashboard', 'housekeeping', 'rooms', 'night_audit'],
   'Housekeeper': ['dashboard', 'housekeeping', 'rooms'],
-  'F&B Manager': ['dashboard', 'pos', 'inventory'],
+  'F&B Manager': ['dashboard', 'pos', 'inventory', 'night_audit'],
   'Waiter': ['dashboard', 'pos'],
   'Executive Chef': ['dashboard', 'pos', 'inventory'],
   'Storekeeper': ['dashboard', 'inventory'],
   'Purchasing Officer': ['dashboard', 'inventory'],
-  'Finance Officer': ['dashboard', 'reservations', 'billing', 'night_audit'],
+  'Finance Officer': ['dashboard', 'billing'],
   'Maintenance Technician': ['dashboard', 'housekeeping', 'rooms'],
 };
 
@@ -35,6 +35,26 @@ const AREA_TABS: Record<string, ActiveTab[]> = {
   restaurant_menu: ['pos'],
   inventory: ['inventory'],
   recipes: ['inventory'],
+};
+
+export const isReservationRole = (role: string): boolean => {
+  const norm = (role || '').toLowerCase();
+  return (
+    norm.includes('general manager') ||
+    norm.includes('front desk') ||
+    norm.includes('front office') ||
+    norm.includes('reception') ||
+    norm.includes('system admin')
+  );
+};
+
+export const isManagerOrSupervisor = (role: string): boolean => {
+  const norm = (role || '').toLowerCase();
+  return (
+    norm.includes('manager') ||
+    norm.includes('supervisor') ||
+    norm.includes('admin')
+  );
 };
 
 export const getAllowedTabs = (role: string, accessAreas: string[] = []): ActiveTab[] => {

@@ -23,7 +23,7 @@ import { AuthenticatedStaff, clearApiAuthentication, hotelApi } from './api/hote
 import { LoginScreen } from './components/auth/LoginScreen';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { FeedbackInboxTab } from './components/feedback/FeedbackInboxTab';
-import { getAllowedTabs } from './auth/tabAccess';
+import { getAllowedTabs, isReservationRole } from './auth/tabAccess';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
   const allowedTabs = getAllowedTabs(staff.role, staff.accessAreas);
@@ -31,7 +31,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
   const setActiveTab = (tab: ActiveTab) => {
     if (allowedTabs.includes(tab)) setActiveTabState(tab);
   };
-  const canBook = allowedTabs.includes('reservations');
+  const canBook = isReservationRole(staff.role);
 
   // Modals state
   const [isNewReservationOpen, setIsNewReservationOpen] = useState(false);

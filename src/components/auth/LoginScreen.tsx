@@ -57,6 +57,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, isSubmitting,
             />
           </div>
 
+          <div className="pt-1">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Quick Sign-in Roles</span>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => { setEmail('gm@arbaminchhotel.et'); setPassword('ArbaHotel#2026'); }}
+                className="px-2.5 py-1.5 text-left rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 font-medium text-slate-700"
+              >
+                👔 General Manager
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEmail('reception@arbaminchhotel.et'); setPassword('ArbaHotel#2026'); }}
+                className="px-2.5 py-1.5 text-left rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 font-medium text-slate-700"
+              >
+                🛎️ Receptionist
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEmail('cashier@arbaminchhotel.et'); setPassword('ArbaHotel#2026'); }}
+                className="px-2.5 py-1.5 text-left rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 font-medium text-slate-700"
+              >
+                💳 Cashier
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEmail('housekeeping@arbaminchhotel.et'); setPassword('ArbaHotel#2026'); }}
+                className="px-2.5 py-1.5 text-left rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 font-medium text-slate-700"
+              >
+                🧹 Housekeeping
+              </button>
+            </div>
+          </div>
+
           {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
 
           <button

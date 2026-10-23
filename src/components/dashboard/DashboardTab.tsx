@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Reservation, RoomStatus } from '../../types/hotel';
+import { isReservationRole, isManagerOrSupervisor } from '../../auth/tabAccess';
 
 interface DashboardTabProps {
   onOpenNewReservation: () => void;
@@ -32,7 +33,10 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   onSelectReservation,
   onNavigateTab,
 }) => {
-  const { rooms, reservations, metrics, checkInReservation, checkOutReservation } = useHotel();
+  const { rooms, reservations, metrics, checkInReservation, checkOutReservation, currentRole } = useHotel();
+
+  const canCreateReservation = isReservationRole(currentRole);
+  const canAccessNightAudit = isManagerOrSupervisor(currentRole);
 
   const confirmedArrivals = metrics.todayArrivals.filter((r) => r.status === 'confirmed');
   const checkedInToday = metrics.todayArrivals.filter((r) => r.status === 'checked_in');
@@ -53,13 +57,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={onOpenNewReservation}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 active:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>New Reservation</span>
-          </button>
+          {canCreateReservation && (
+            <button
+              onClick={onOpenNewReservation}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 active:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-xs transition-colors cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>New Reservation</span>
+            </button>
+          )}
           <button
             onClick={() => onNavigateTab('rooms')}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium text-sm rounded-xl transition-colors cursor-pointer"
@@ -74,13 +80,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
             <UtensilsCrossed className="w-4 h-4 text-orange-400" />
             <span>F&B POS (M4)</span>
           </button>
-          <button
-            onClick={() => onNavigateTab('night_audit')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-200 font-medium text-sm rounded-xl transition-colors cursor-pointer"
-          >
-            <Moon className="w-4 h-4 text-purple-400" />
-            <span>Night Audit (M5)</span>
-          </button>
+          {canAccessNightAudit && (
+            <button
+              onClick={() => onNavigateTab('night_audit')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-purple-200 font-medium text-sm rounded-xl transition-colors cursor-pointer"
+            >
+              <Moon className="w-4 h-4 text-purple-400" />
+              <span>Night Audit (M5)</span>
+            </button>
+          )}
         </div>
       </div>
 
