@@ -13,4 +13,5 @@ def current_user(request):
         'full_name': user.full_name,
         'role': user.role,
         'role_display': user.get_role_display(),
+        'access_areas': sorted(user.role_access_areas()),
     })

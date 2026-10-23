@@ -5,6 +5,7 @@ export interface AuthenticatedStaff {
   email: string;
   fullName: string;
   role: StaffRole;
+  accessAreas: string[];
 }
 
 export interface InventoryIngredient {
@@ -794,6 +795,7 @@ export const hotelApi = {
           email: payload.email,
           fullName: payload.full_name,
           role: roles[payload.role] || payload.role_display || 'Receptionist',
+          accessAreas: Array.isArray(payload.access_areas) ? payload.access_areas : [],
         };
         basicAuthorizationHeader = authorization;
         return staff;

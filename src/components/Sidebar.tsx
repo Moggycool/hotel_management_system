@@ -40,16 +40,17 @@ export type ActiveTab =
 interface SidebarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+  allowedTabs: ActiveTab[];
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { metrics, housekeepingTasks, maintenanceTickets, currentRole } = useHotel();
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allowedTabs }) => {
+  const { metrics, housekeepingTasks, maintenanceTickets } = useHotel();
 
   const dirtyCount = housekeepingTasks.filter((t) => t.status === 'dirty' || t.status === 'in_progress').length;
   const maintenanceCount = maintenanceTickets.filter((m) => m.status !== 'resolved').length;
   const pendingArrivals = metrics.todayArrivals.filter((r) => r.status === 'confirmed').length;
 
-  const navItems: { id: ActiveTab; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
+  const allNavItems: { id: ActiveTab; label: string; icon: React.FC<{ className?: string }>; badge?: number; badgeColor?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     {
       id: 'security_audit',
@@ -90,13 +91,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     },
     { id: 'calendar', label: 'Occupancy Timeline', icon: CalendarDays },
     { id: 'database_admin', label: 'Database & Admin', icon: Database },
+    { id: 'guest_feedback', label: 'Guest Feedback', icon: MessageSquareText },
     { id: 'settings', label: 'Hotel Settings', icon: Settings },
   ];
-  if (['General Manager', 'Front Office Manager', 'System Administrator'].includes(currentRole)) {
-    navItems.splice(navItems.length - 1, 0, {
-      id: 'guest_feedback', label: 'Guest Feedback', icon: MessageSquareText,
-    });
-  }
+  const navItems = allNavItems.filter((item) => allowedTabs.includes(item.id));
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">

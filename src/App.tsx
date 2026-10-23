@@ -23,9 +23,15 @@ import { AuthenticatedStaff, clearApiAuthentication, hotelApi } from './api/hote
 import { LoginScreen } from './components/auth/LoginScreen';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { FeedbackInboxTab } from './components/feedback/FeedbackInboxTab';
+import { getAllowedTabs } from './auth/tabAccess';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const allowedTabs = getAllowedTabs(staff.role, staff.accessAreas);
+  const [activeTab, setActiveTabState] = useState<ActiveTab>('dashboard');
+  const setActiveTab = (tab: ActiveTab) => {
+    if (allowedTabs.includes(tab)) setActiveTabState(tab);
+  };
+  const canBook = allowedTabs.includes('reservations');
 
   // Modals state
   const [isNewReservationOpen, setIsNewReservationOpen] = useState(false);
@@ -54,6 +60,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
       <Navbar
         authenticatedStaff={staff}
         onLogout={onLogout}
+        canBook={canBook}
         onOpenNewReservation={() => handleOpenNewReservation(null)}
         onOpenQuickCheckIn={() => {
           setActiveTab('reservations');
@@ -63,7 +70,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
       {/* Main Layout Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} allowedTabs={allowedTabs} />
 
         {/* Center Main Tab View */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

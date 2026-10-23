@@ -17,9 +17,10 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenNewReservation: () => void;
   onOpenQuickCheckIn: () => void;
+  canBook?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn }) => {
+export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn, canBook = true }) => {
   const {
     settings,
     searchQuery,
@@ -106,24 +107,24 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
           </div>
 
           {/* Quick Check-in CTA */}
-          <button
+          {canBook && <button
             onClick={onOpenQuickCheckIn}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition-colors cursor-pointer"
             title="Express Check-in for arriving guests"
           >
             <CalendarCheck className="w-4 h-4" />
             <span>Arrivals ({metrics.todayArrivals.filter((r) => r.status === 'confirmed').length})</span>
-          </button>
+          </button>}
 
           {/* New Reservation CTA */}
-          <button
+          {canBook && <button
             onClick={onOpenNewReservation}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg shadow-xs shadow-emerald-600/30 transition-all cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
             <span className="hidden sm:inline">Book Reservation</span>
             <span className="sm:hidden">Book</span>
-          </button>
+          </button>}
 
           <button
             onClick={onLogout}
