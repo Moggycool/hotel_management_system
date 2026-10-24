@@ -1,5 +1,5 @@
 node_modules/
-dist/
+# dist/ is included so Render Python Web Service can serve the compiled frontend
 .DS_Store
 .env
 .env.*
@@ -10,5 +10,3 @@ __pycache__/
 db.sqlite3
 *.log
 logs/
-
-

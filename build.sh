@@ -5,7 +5,14 @@ set -o errexit
 echo "Installing Python dependencies..."
 pip install -r requirements.txt
 
-echo "Collecting static files for Django Admin..."
+# If node and npm are available in environment, build frontend
+if command -v npm &> /dev/null; then
+  echo "Node & npm detected. Building React frontend..."
+  npm install
+  npm run build
+fi
+
+echo "Collecting static files for Django and Frontend..."
 python manage.py collectstatic --no-input
 
 echo "Applying database migrations..."
