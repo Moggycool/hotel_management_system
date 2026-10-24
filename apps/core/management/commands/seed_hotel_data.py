@@ -43,16 +43,24 @@ class Command(BaseCommand):
         ]
 
         for email, name, role, is_staff in staff_data:
-            if not User.objects.filter(email=email).exists():
+            user = User.objects.filter(email=email).first()
+            is_super = (role == StaffRole.GENERAL_MANAGER)
+            if not user:
                 u = User.objects.create_user(
                     email=email,
                     password='ArbaHotel#2026',
                     full_name=name,
                     role=role,
                     is_staff=is_staff,
+                    is_superuser=is_super,
                 )
                 self.stdout.write(
-                    f"Created staff user: {u.full_name} ({role})")
+                    f"Created staff user: {u.full_name} ({role}) [Superuser: {is_super}]")
+            else:
+                user.is_staff = is_staff
+                if is_super:
+                    user.is_superuser = True
+                user.save()
 
         # 3. Room Types
         types_data = [
