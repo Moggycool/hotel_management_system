@@ -202,6 +202,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'dist'] if (BASE_DIR / 'dist').exists() else []
 try:
     import whitenoise  # noqa: F401
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'

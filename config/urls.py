@@ -14,15 +14,24 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-# config/urls.py
+from pathlib import Path
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic.base import RedirectView
+from django.http import FileResponse
 from apps.accounts.auth_views import current_user
 from apps.properties.views import CurrentPropertyConfigView
 
+
+def serve_spa(request):
+    index_file = settings.BASE_DIR / 'dist' / 'index.html'
+    if index_file.exists():
+        return FileResponse(open(index_file, 'rb'), content_type='text/html')
+    return RedirectView.as_view(url='/admin/', permanent=False)(request)
+
+
 urlpatterns = [
-    path('', RedirectView.as_view(url='/admin/', permanent=False), name='home'),
     path('admin/', admin.site.urls),
     path('api/v1/auth/me/', current_user, name='current-user'),
     path('api/v1/properties/current/', CurrentPropertyConfigView.as_view(),
@@ -38,4 +47,7 @@ urlpatterns = [
     path('api/v1/reporting/', include('apps.reporting.urls')),
     path('api/v1/audit/', include('apps.audit.urls')),
     path('api/v1/feedback/', include('apps.feedback.urls')),
+    path('staff/', serve_spa, name='staff'),
+    path('staff', serve_spa, name='staff-no-slash'),
+    path('', serve_spa, name='home'),
 ]

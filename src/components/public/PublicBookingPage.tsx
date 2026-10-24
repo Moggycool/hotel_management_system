@@ -40,7 +40,11 @@ function roomImage(type: string) {
   return roomPhotography[key];
 }
 
-export const PublicBookingPage: React.FC = () => {
+interface PublicBookingPageProps {
+  onOpenStaffPortal?: () => void;
+}
+
+export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ onOpenStaffPortal }) => {
   const initial = initialDates();
   const [property, setProperty] = useState<PublicBookingInfo | null>(null);
   const [propertyError, setPropertyError] = useState('');
@@ -201,6 +205,13 @@ export const PublicBookingPage: React.FC = () => {
         <nav className="flex items-center gap-4 text-sm">
           <a href="#rooms" className="hidden sm:block hover:text-[#d9c78e]">Rooms</a>
           <a href="#story" className="hidden sm:block hover:text-[#d9c78e]">The hotel</a>
+          <button
+            type="button"
+            onClick={onOpenStaffPortal || (() => { window.location.href = '/staff'; })}
+            className="rounded border border-[#e3d39d]/60 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#e3d39d] transition hover:bg-[#e3d39d] hover:text-[#20342f]"
+          >
+            Staff Portal
+          </button>
         </nav>
       </header>
 
@@ -357,7 +368,18 @@ export const PublicBookingPage: React.FC = () => {
       <footer className="bg-[#203a32] px-5 py-10 text-white md:px-12">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 md:flex-row md:items-end">
           <div><p className="font-serif text-2xl">{propertyName}</p><p className="mt-2 text-xs text-white/65">{property?.address}</p></div>
-          <div className="text-xs leading-6 text-white/75">{property?.phone && <p>{property.phone}</p>}{property?.email && <p>{property.email}</p>}<p>Check-in {property?.checkInTime || '14:00'} · Check-out {property?.checkOutTime || '11:00'}</p></div>
+          <div className="flex flex-col items-start gap-1 md:items-end text-xs leading-6 text-white/75">
+            {property?.phone && <p>{property.phone}</p>}
+            {property?.email && <p>{property.email}</p>}
+            <p>Check-in {property?.checkInTime || '14:00'} · Check-out {property?.checkOutTime || '11:00'}</p>
+            <button
+              type="button"
+              onClick={onOpenStaffPortal || (() => { window.location.href = '/staff'; })}
+              className="mt-2 text-xs font-semibold text-[#e3d39d] hover:underline"
+            >
+              🔒 Staff Login / PMS Dashboard
+            </button>
+          </div>
         </div>
       </footer>
     </main>

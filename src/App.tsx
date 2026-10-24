@@ -181,7 +181,11 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
 };
 
 export function App() {
-  const staffPath = () => window.location.pathname.replace(/\/$/, '') === '/staff';
+  const staffPath = () => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname.replace(/\/$/, '');
+    return path === '/staff' || window.location.search.includes('staff=true') || window.location.hash === '#staff';
+  };
   const [appMode, setAppMode] = useState<'public' | 'staff'>(() => staffPath() ? 'staff' : 'public');
   const [staff, setStaff] = useState<AuthenticatedStaff | null>(null);
   const [loginError, setLoginError] = useState('');
@@ -196,6 +200,11 @@ export function App() {
   const navigateToPublic = () => {
     if (staffPath()) window.history.pushState({}, '', '/');
     setAppMode('public');
+  };
+
+  const navigateToStaff = () => {
+    if (!staffPath()) window.history.pushState({}, '', '/staff');
+    setAppMode('staff');
   };
 
   const handleLogin = async (email: string, password: string) => {
@@ -220,7 +229,7 @@ export function App() {
   };
 
   if (appMode === 'public') {
-    return <PublicBookingPage />;
+    return <PublicBookingPage onOpenStaffPortal={navigateToStaff} />;
   }
 
   if (!staff) {
