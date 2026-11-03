@@ -19,13 +19,17 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic.base import RedirectView
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, HttpResponseRedirect
 from django.views.static import serve as static_serve
 from apps.accounts.auth_views import current_user
 from apps.properties.views import CurrentPropertyConfigView
 
 
 def serve_spa(request):
+    # In development the live Vite server is the source of truth, not a stale dist/ build.
+    if settings.DEBUG:
+        return HttpResponseRedirect('http://localhost:3000' + request.get_full_path())
+
     index_file = settings.BASE_DIR / 'dist' / 'index.html'
     if index_file.exists():
         return FileResponse(open(index_file, 'rb'), content_type='text/html')
