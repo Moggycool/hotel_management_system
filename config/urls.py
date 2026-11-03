@@ -19,16 +19,22 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic.base import RedirectView
-from django.http import FileResponse, HttpResponse, HttpResponseRedirect
+from django.http import FileResponse, HttpResponse
 from django.views.static import serve as static_serve
 from apps.accounts.auth_views import current_user
 from apps.properties.views import CurrentPropertyConfigView
 
 
 def serve_spa(request):
-    # In development the live Vite server is the source of truth, not a stale dist/ build.
+    # In development the frontend lives on the Vite server; :8000 is backend-only.
     if settings.DEBUG:
-        return HttpResponseRedirect('http://localhost:3000' + request.get_full_path())
+        return HttpResponse(
+            '<h1>Hotel backend (Django)</h1>'
+            '<p>Frontend: <a href="http://localhost:3000/">http://localhost:3000/</a></p>'
+            '<p><a href="/admin/">Admin</a> | '
+            '<a href="/api/v1/properties/current/">API</a></p>',
+            content_type='text/html',
+        )
 
     index_file = settings.BASE_DIR / 'dist' / 'index.html'
     if index_file.exists():
