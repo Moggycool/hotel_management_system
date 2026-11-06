@@ -20,6 +20,7 @@ import {
   MessageSquareText,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
+import { useLanguage } from '../context/LanguageContext';
 
 export type ActiveTab =
   | 'dashboard'
@@ -44,6 +45,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allowedTabs }) => {
+  const { t } = useLanguage();
   const { metrics, housekeepingTasks, maintenanceTickets } = useHotel();
 
   const dirtyCount = housekeepingTasks.filter((t) => t.status === 'dirty' || t.status === 'in_progress').length;
@@ -102,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
       <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-            Live Occupancy
+            {t('Live Occupancy')}
           </span>
           <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
             <Percent className="w-3 h-3" />
@@ -127,9 +129,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
           />
         </div>
         <div className="flex justify-between items-center text-[11px] text-slate-400 mt-2">
-          <span>{metrics.occupiedRooms} Occupied</span>
-          <span>{metrics.availableRooms} Available</span>
-          <span>{metrics.cleaningRooms} Cleaning</span>
+          <span>{metrics.occupiedRooms} {t('Occupied')}</span>
+          <span>{metrics.availableRooms} {t('Available')}</span>
+          <span>{metrics.cleaningRooms} {t('Cleaning')}</span>
         </div>
       </div>
 
@@ -150,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
             >
               <div className="flex items-center gap-3">
                 <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <span>{t(item.label)}</span>
               </div>
               {item.badge !== undefined && (
                 <span
@@ -169,11 +171,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
       {/* Footer Info */}
       <div className="p-4 border-t border-slate-800 text-xs text-slate-500 bg-slate-950/20">
         <div className="flex items-center justify-between text-slate-400 mb-1">
-          <span>Active In-House</span>
-          <span className="font-semibold text-slate-200">{metrics.activeGuestsCount} Guests</span>
+          <span>{t('Active In-House')}</span>
+          <span className="font-semibold text-slate-200">{metrics.activeGuestsCount} {t('Guests')}</span>
         </div>
         <div className="flex items-center justify-between text-slate-400">
-          <span>ADR (Avg Rate)</span>
+          <span>{t('ADR (Avg Rate)')}</span>
           <span className="font-semibold text-slate-200">${metrics.averageDailyRate}/night</span>
         </div>
       </div>

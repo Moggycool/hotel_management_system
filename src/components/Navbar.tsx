@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { AuthenticatedStaff } from '../api/hotelApi';
+import { LanguageSwitcher, useLanguage } from '../context/LanguageContext';
 
 interface NavbarProps {
   authenticatedStaff: AuthenticatedStaff;
@@ -21,6 +22,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn, canBook = true }) => {
+  const { t } = useLanguage();
   const {
     settings,
     searchQuery,
@@ -73,7 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search rooms, guests, Telebirr refs, or confirmation..."
+              placeholder={t('Search rooms, guests, Telebirr refs, or confirmation...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-1.5 text-xs bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all placeholder:text-slate-400"
@@ -91,6 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
 
         {/* Status / Quick Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <LanguageSwitcher className="border-slate-300 text-slate-700" />
           <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/80 border border-indigo-200 text-xs">
             <ShieldCheck className="w-3.5 h-3.5 text-indigo-700 shrink-0" />
             <span className="max-w-36 truncate font-bold text-indigo-900" title={`${authenticatedStaff.fullName} · ${authenticatedStaff.role}`}>
@@ -110,10 +113,10 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
           {canBook && <button
             onClick={onOpenQuickCheckIn}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition-colors cursor-pointer"
-            title="Express Check-in for arriving guests"
+            title={t('Express Check-in for arriving guests')}
           >
             <CalendarCheck className="w-4 h-4" />
-            <span>Arrivals ({metrics.todayArrivals.filter((r) => r.status === 'confirmed').length})</span>
+            <span>{t('Arrivals ({count})', { count: metrics.todayArrivals.filter((r) => r.status === 'confirmed').length })}</span>
           </button>}
 
           {/* New Reservation CTA */}
@@ -122,14 +125,14 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg shadow-xs shadow-emerald-600/30 transition-all cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
-            <span className="hidden sm:inline">Book Reservation</span>
-            <span className="sm:hidden">Book</span>
+            <span className="hidden sm:inline">{t('Book Reservation')}</span>
+            <span className="sm:hidden">{t('Book')}</span>
           </button>}
 
           <button
             onClick={onLogout}
-            title={`Sign out ${authenticatedStaff.email}`}
-            aria-label="Sign out"
+            title={`${t('Sign out')} ${authenticatedStaff.email}`}
+            aria-label={t('Sign out')}
             className="p-2 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />

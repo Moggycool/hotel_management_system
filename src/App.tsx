@@ -24,6 +24,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { FeedbackInboxTab } from './components/feedback/FeedbackInboxTab';
 import { getAllowedTabs, isReservationRole } from './auth/tabAccess';
+import { LanguageProvider } from './context/LanguageContext';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
   const allowedTabs = getAllowedTabs(staff.role, staff.accessAreas);
@@ -180,7 +181,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
   );
 };
 
-export function App() {
+function AppContent() {
   const staffPath = () => {
     if (typeof window === 'undefined') return false;
     const path = window.location.pathname.replace(/\/$/, '');
@@ -240,6 +241,14 @@ export function App() {
     <HotelProvider initialRole={staff.role}>
       <HotelApp staff={staff} onLogout={handleLogout} />
     </HotelProvider>
+  );
+}
+
+export function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }
 
