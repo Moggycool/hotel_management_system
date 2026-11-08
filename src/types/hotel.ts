@@ -13,6 +13,7 @@ export interface Room {
   capacity: number;
   bedType: string; // e.g. "1 King Bed", "2 Queen Beds"
   sizeSqFt: number;
+  imageUrl?: string;
   amenities: string[];
   status: RoomStatus;
   housekeepingStatus: HousekeepingStatus;
@@ -209,6 +210,7 @@ export interface MenuItem {
   preparationMinutes: number;
   isAvailable: boolean; // In-stock vs 86'd
   imageUrl?: string;
+  isAlcoholic?: boolean;
 }
 
 export type TableSection = 'indoor_dining' | 'terrace' | 'vip_lounge' | 'bar_lounge';

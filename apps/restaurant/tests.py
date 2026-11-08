@@ -196,7 +196,7 @@ def test_kitchen_item_status_cannot_skip_preparation():
 def test_menu_catalog_is_manager_editable_and_unavailable_items_cannot_be_ordered():
     manager = User.objects.create_user(
         email='menu-fb-manager@example.et', password='StrongPassword#2026',
-        full_name='Menu Manager', role=StaffRole.FB_MANAGER,
+        full_name='Menu Manager', role=StaffRole.GENERAL_MANAGER,
     )
     waiter = User.objects.create_user(
         email='menu-waiter@example.et', password='StrongPassword#2026',
@@ -232,7 +232,7 @@ def test_menu_catalog_is_manager_editable_and_unavailable_items_cannot_be_ordere
 def test_menu_item_api_uses_stable_client_id_and_server_price():
     manager = User.objects.create_user(
         email='menu-catalog-manager@example.et', password='StrongPassword#2026',
-        full_name='Menu Catalog Manager', role=StaffRole.FB_MANAGER,
+        full_name='Menu Catalog Manager', role=StaffRole.GENERAL_MANAGER,
     )
     waiter = User.objects.create_user(
         email='menu-catalog-waiter@example.et', password='StrongPassword#2026',
@@ -281,6 +281,106 @@ def test_menu_item_api_uses_stable_client_id_and_server_price():
     assert order_item.name == 'Catalog Dish'
     assert order_item.unit_price == Decimal('140.00')
     assert order_item.station == 'HOT_KITCHEN'
+
+
+@pytest.mark.django_db
+def test_menu_mutations_are_limited_to_general_manager_and_system_admin():
+    menu_item = add_menu_item(
+        'menu-role-check', 'ROLE-01', 'Role Check', '80.00', 'BAR_BEVERAGE')
+    fb_manager = User.objects.create_user(
+        email='menu-role-fb@example.et', password='StrongPassword#2026',
+        full_name='F&B Manager', role=StaffRole.FB_MANAGER,
+    )
+    gm = User.objects.create_user(
+        email='menu-role-gm@example.et', password='StrongPassword#2026',
+        full_name='General Manager', role=StaffRole.GENERAL_MANAGER,
+    )
+    system_admin = User.objects.create_user(
+        email='menu-role-admin@example.et', password='StrongPassword#2026',
+        full_name='System Administrator', role=StaffRole.SYSTEM_ADMIN,
+    )
+
+    fb_client = APIClient()
+    fb_client.force_authenticate(user=fb_manager)
+    assert fb_client.patch(
+        f'/api/v1/restaurant/menu-items/{menu_item.client_id}/',
+        {'price': '90.00'}, format='json',
+    ).status_code == 403
+    assert fb_client.delete(
+        f'/api/v1/restaurant/menu-items/{menu_item.client_id}/',
+    ).status_code == 403
+
+    for user in (gm, system_admin):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.patch(
+            f'/api/v1/restaurant/menu-items/{menu_item.client_id}/',
+            {'price': '95.00'}, format='json',
+        )
+        assert response.status_code == 200, response.data
+
+
+@pytest.mark.django_db
+def test_menu_item_create_persists_food_liquor_details_and_photo(settings, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    settings.MEDIA_ROOT = tmp_path
+    gm = User.objects.create_user(
+        email='menu-photo-gm@example.et', password='StrongPassword#2026',
+        full_name='General Manager', role=StaffRole.GENERAL_MANAGER,
+    )
+    client = APIClient()
+    client.force_authenticate(user=gm)
+    image_buffer = BytesIO()
+    Image.new('RGB', (1, 1), color='white').save(image_buffer, format='PNG')
+    png = image_buffer.getvalue()
+    response = client.post(
+        '/api/v1/restaurant/menu-items/',
+        {
+            'client_id': 'menu-liquor-photo', 'code': 'LIQ-01',
+            'name': 'Local Honey Wine', 'name_amharic': 'ጠጅ',
+            'description': 'Honey wine', 'category': 'BEVERAGES',
+            'price': '350.00', 'station': 'BAR_BEVERAGE',
+            'is_available': 'true', 'is_alcoholic': 'true',
+            'photo': SimpleUploadedFile('tej.png', png, content_type='image/png'),
+        },
+        format='multipart',
+    )
+
+    assert response.status_code == 201, response.data
+    item = RestaurantMenuItem.objects.get(client_id='menu-liquor-photo')
+    assert item.price == Decimal('350.00')
+    assert item.is_alcoholic is True
+    assert item.photo.name.startswith('menu-items/')
+
+
+@pytest.mark.django_db
+def test_legacy_menu_item_can_be_updated_and_deleted_by_code():
+    gm = User.objects.create_user(
+        email='menu-legacy-gm@example.et', password='StrongPassword#2026',
+        full_name='General Manager', role=StaffRole.GENERAL_MANAGER,
+    )
+    item = RestaurantMenuItem.objects.create(
+        code='LEGACY-01', name='Legacy Menu Entry', category='BEVERAGES',
+        price=Decimal('100.00'), station='BAR_BEVERAGE',
+    )
+    client = APIClient()
+    client.force_authenticate(user=gm)
+
+    updated = client.patch(
+        '/api/v1/restaurant/menu-items/LEGACY-01/',
+        {'price': '125.00'}, format='json',
+    )
+    assert updated.status_code == 200, updated.data
+    item.refresh_from_db()
+    assert item.price == Decimal('125.00')
+
+    deleted = client.delete('/api/v1/restaurant/menu-items/LEGACY-01/')
+    assert deleted.status_code == 204
+    assert not RestaurantMenuItem.objects.filter(pk=item.pk).exists()
 
 
 @pytest.mark.django_db

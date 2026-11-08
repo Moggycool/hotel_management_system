@@ -214,6 +214,83 @@ def test_room_api_creates_and_updates_room(setup_rooms):
 
 
 @pytest.mark.django_db
+def test_room_type_crud_persists_details_and_photo(setup_rooms, settings, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    settings.MEDIA_ROOT = tmp_path
+    client = authenticated_client(setup_rooms['user'])
+    image_buffer = BytesIO()
+    Image.new('RGB', (1, 1), color='white').save(image_buffer, format='PNG')
+    png = image_buffer.getvalue()
+    response = client.post(
+        '/api/v1/rooms/room-types/',
+        {
+            'name': 'Lake View Suite', 'name_amharic': 'የሐይቅ እይታ ስዊት',
+            'description': 'Suite overlooking Lake Chamo',
+            'base_price_etb': '8500.00', 'max_adults': '3', 'max_children': '2',
+            'bed_type': '1 King Bed', 'size_sqm': '48',
+            'amenities': '["Wi-Fi", "Lake view"]',
+            'photo': SimpleUploadedFile('suite.png', png, content_type='image/png'),
+        },
+        format='multipart',
+    )
+
+    assert response.status_code == 201, response.data
+    room_type = RoomType.objects.get(name='Lake View Suite')
+    assert room_type.base_price_etb == Decimal('8500.00')
+    assert room_type.photo.name.startswith('room-types/')
+    assert response.data['photo'].endswith(room_type.photo.name)
+
+    update = client.patch(
+        f'/api/v1/rooms/room-types/{room_type.id}/',
+        {'base_price_etb': '9000.00', 'amenities': '["Wi-Fi"]'},
+        format='multipart',
+    )
+    assert update.status_code == 200, update.data
+    room_type.refresh_from_db()
+    assert room_type.base_price_etb == Decimal('9000.00')
+    assert room_type.amenities == ['Wi-Fi']
+
+
+@pytest.mark.django_db
+def test_room_type_delete_rejects_type_assigned_to_rooms(setup_rooms):
+    client = authenticated_client(setup_rooms['user'])
+    response = client.delete(
+        f'/api/v1/rooms/room-types/{setup_rooms["rt"].id}/')
+
+    assert response.status_code == 400
+    assert RoomType.objects.filter(pk=setup_rooms['rt'].id).exists()
+
+
+@pytest.mark.django_db
+def test_room_type_writes_are_limited_to_general_manager_and_system_admin(setup_rooms):
+    receptionist = User.objects.create_user(
+        email='room-type-receptionist@example.et', password='StrongPassword#2026',
+        full_name='Receptionist', role=StaffRole.RECEPTIONIST,
+    )
+    system_admin = User.objects.create_user(
+        email='room-type-admin@example.et', password='StrongPassword#2026',
+        full_name='System Administrator', role=StaffRole.SYSTEM_ADMIN,
+    )
+    receptionist_client = authenticated_client(receptionist)
+    denied = receptionist_client.patch(
+        f'/api/v1/rooms/room-types/{setup_rooms["rt"].id}/',
+        {'name': 'Unauthorized Type'}, format='json',
+    )
+    assert denied.status_code == 403
+
+    admin_client = authenticated_client(system_admin)
+    allowed = admin_client.patch(
+        f'/api/v1/rooms/room-types/{setup_rooms["rt"].id}/',
+        {'name': 'Updated Room Type'}, format='json',
+    )
+    assert allowed.status_code == 200, allowed.data
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     'role', [StaffRole.RECEPTIONIST, StaffRole.FRONT_OFFICE_MANAGER],
 )

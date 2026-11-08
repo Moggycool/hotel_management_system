@@ -1,9 +1,11 @@
 from django.db import transaction
+from django.db.models import ProtectedError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 
@@ -38,6 +40,18 @@ class RoomTypeViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         permission_class = IsAuthenticated if self.action in [
             'list', 'retrieve'] else IsGeneralManager
         return [permission_class()]
+
+    def perform_destroy(self, instance):
+        if instance.rooms.exists():
+            raise ValidationError({
+                'detail': 'Cannot delete a room type while rooms still use it.'
+            })
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError as error:
+            raise ValidationError({
+                'detail': 'Cannot delete a room type while it is referenced.'
+            }) from error
 
 
 class RatePlanViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
@@ -81,7 +95,6 @@ class RoomViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             status__in=['PAYMENT_PENDING', 'CONFIRMED', 'CHECKED_IN'],
         ).first()
         if active_reservation:
-            from rest_framework.exceptions import ValidationError
             raise ValidationError({
                 'detail': (
                     f'Room {room.room_number} cannot be removed while reservation '

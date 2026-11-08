@@ -39,7 +39,7 @@ import {
   initialNightAuditReports,
   getRelativeDate,
 } from '../data/initialData';
-import { hotelApi, RoomTypeRecord } from '../api/hotelApi';
+import { hotelApi, RoomTypeInput, RoomTypeRecord } from '../api/hotelApi';
 
 interface HotelContextType {
   rooms: Room[];
@@ -116,6 +116,9 @@ interface HotelContextType {
   deactivateRoom: (roomId: string) => Promise<void>;
   addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => Promise<void>;
   roomTypes: RoomTypeRecord[];
+  createRoomType: (data: RoomTypeInput) => Promise<RoomTypeRecord>;
+  updateRoomType: (roomTypeId: string, updates: Partial<RoomTypeInput>) => Promise<RoomTypeRecord>;
+  deleteRoomType: (roomTypeId: string) => Promise<void>;
   renameRoomType: (roomTypeId: string, name: string) => Promise<void>;
   assignHousekeeper: (roomId: string, staffName: string) => void;
   updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => Promise<boolean>;
@@ -157,8 +160,9 @@ interface HotelContextType {
   ) => Promise<boolean>;
   voidOrder: (orderId: string, reason: string) => Promise<boolean>;
   toggleMenuItemAvailability: (menuItemId: string) => Promise<boolean>;
-  updateMenuItem: (menuItemId: string, updates: Partial<MenuItem>) => Promise<boolean>;
-  addMenuItem: (item: Omit<MenuItem, 'id'>) => Promise<MenuItem>;
+  updateMenuItem: (menuItemId: string, updates: Partial<MenuItem>, photo?: File | null) => Promise<boolean>;
+  addMenuItem: (item: Omit<MenuItem, 'id'>, photo?: File | null) => Promise<MenuItem>;
+  deleteMenuItem: (menuItemId: string) => Promise<boolean>;
   updateTableStatus: (tableId: string, status: TableStatus, assignedWaiter?: string) => void;
 
   // Computed Metrics
@@ -894,6 +898,42 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     setRooms((prev) => [...prev, createdRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
   };
 
+  const createRoomType = async (data: RoomTypeInput) => {
+    const created = await hotelApi.createRoomTypeInDjango(data);
+    setRoomTypes((prev) => [...prev, created].sort((a, b) => a.basePriceEtb - b.basePriceEtb));
+    return created;
+  };
+
+  const updateRoomType = async (roomTypeId: string, updates: Partial<RoomTypeInput>) => {
+    const previous = roomTypes.find((type) => type.id === roomTypeId);
+    const updated = await hotelApi.updateRoomTypeInDjango(roomTypeId, updates);
+    setRoomTypes((prev) => prev.map((type) => type.id === roomTypeId ? updated : type));
+    if (previous) {
+      setRooms((prev) => prev.map((room) => room.type === previous.name ? {
+        ...room,
+        type: updated.name,
+        pricePerNight: updated.basePriceEtb,
+        capacity: updated.maxAdults + updated.maxChildren,
+        bedType: updated.bedType,
+        sizeSqFt: Math.round(updated.sizeSqM * 10.7639),
+        amenities: updated.amenities,
+        imageUrl: updated.photoUrl || undefined,
+      } : room));
+      setReservations((prev) => prev.map((reservation) => reservation.roomType === previous.name
+        ? { ...reservation, roomType: updated.name }
+        : reservation));
+      setHousekeepingTasks((prev) => prev.map((task) => task.roomType === previous.name
+        ? { ...task, roomType: updated.name }
+        : task));
+    }
+    return updated;
+  };
+
+  const deleteRoomType = async (roomTypeId: string) => {
+    await hotelApi.deleteRoomTypeInDjango(roomTypeId);
+    setRoomTypes((prev) => prev.filter((type) => type.id !== roomTypeId));
+  };
+
   const renameRoomType = async (roomTypeId: string, name: string) => {
     const oldName = roomTypes.find((type) => type.id === roomTypeId)?.name;
     const updated = await hotelApi.renameRoomTypeInDjango(roomTypeId, name.trim());
@@ -1305,9 +1345,9 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     return updateMenuItem(menuItemId, { isAvailable: !current.isAvailable });
   };
 
-  const updateMenuItem = async (menuItemId: string, updates: Partial<MenuItem>): Promise<boolean> => {
+  const updateMenuItem = async (menuItemId: string, updates: Partial<MenuItem>, photo?: File | null): Promise<boolean> => {
     try {
-      const updated = await hotelApi.updateRestaurantMenuItemInDjango(menuItemId, updates);
+      const updated = await hotelApi.updateRestaurantMenuItemInDjango(menuItemId, updates, photo);
       setMenuItems((prev) => prev.map((item) => item.id === menuItemId ? updated : item));
       return true;
     } catch (error) {
@@ -1316,14 +1356,25 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     }
   };
 
-  const addMenuItem = async (itemData: Omit<MenuItem, 'id'>): Promise<MenuItem> => {
+  const addMenuItem = async (itemData: Omit<MenuItem, 'id'>, photo?: File | null): Promise<MenuItem> => {
     const newItem: MenuItem = {
       ...itemData,
       id: `menu-custom-${Date.now()}`,
     };
-    const created = await hotelApi.createRestaurantMenuItemInDjango(newItem);
+    const created = await hotelApi.createRestaurantMenuItemInDjango(newItem, photo);
     setMenuItems((prev) => [...prev, created]);
     return created;
+  };
+
+  const deleteMenuItem = async (menuItemId: string): Promise<boolean> => {
+    try {
+      await hotelApi.deleteRestaurantMenuItemInDjango(menuItemId);
+      setMenuItems((prev) => prev.filter((item) => item.id !== menuItemId));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete the menu item.');
+      return false;
+    }
   };
 
   const updateTableStatus = (tableId: string, status: TableStatus, assignedWaiter?: string) => {
@@ -1582,6 +1633,9 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         deactivateRoom,
         addRoom,
         roomTypes,
+        createRoomType,
+        updateRoomType,
+        deleteRoomType,
         renameRoomType,
         assignHousekeeper,
         updateHousekeepingStatus,
@@ -1603,6 +1657,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         toggleMenuItemAvailability,
         updateMenuItem,
         addMenuItem,
+        deleteMenuItem,
         updateTableStatus,
         metrics,
       }}

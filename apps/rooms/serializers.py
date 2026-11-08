@@ -34,6 +34,7 @@ class PublicRoomTypeSerializer(serializers.ModelSerializer):
         fields = [
             'name', 'description', 'base_price_etb', 'max_adults',
             'max_children', 'bed_type', 'size_sqm', 'amenities',
+            'photo',
         ]
 
 

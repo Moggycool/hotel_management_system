@@ -16,7 +16,7 @@ import { useHotel } from '../../context/HotelContext';
 import { Room, RoomStatus, RoomType, HousekeepingStatus } from '../../types/hotel';
 import { RoomDetailsModal } from './RoomDetailsModal';
 import { AddRoomModal } from './AddRoomModal';
-import { RoomTypeNamesModal } from './RoomTypeNamesModal';
+import { RoomTypeManagementModal } from './RoomTypeManagementModal';
 
 interface RoomsTabProps {
   onBookRoom: (room: Room) => void;
@@ -26,7 +26,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
   const { rooms, searchQuery, updateRoomStatus, reservations, currentRole, roomTypes } = useHotel();
   const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
   const canRenameRoomTypes = ['General Manager', 'System Administrator'].includes(currentRole);
-  const [isRenameTypesOpen, setIsRenameTypesOpen] = useState(false);
+  const [isRoomTypeManagerOpen, setIsRoomTypeManagerOpen] = useState(false);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -118,11 +118,11 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
             </button>
           </div>
 
-          {canRenameRoomTypes && roomTypes.length > 0 && <button
-            onClick={() => setIsRenameTypesOpen(true)}
+          {canRenameRoomTypes && <button
+            onClick={() => setIsRoomTypeManagerOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-xs transition-colors cursor-pointer"
           >
-            <span>Rename Room Types</span>
+            <span>Manage Room Types</span>
           </button>}
 
           {canManageRooms && <button
@@ -401,7 +401,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
 
       {/* Add Room Modal */}
       {isAddRoomOpen && canManageRooms && <AddRoomModal onClose={() => setIsAddRoomOpen(false)} />}
-      {isRenameTypesOpen && canRenameRoomTypes && <RoomTypeNamesModal onClose={() => setIsRenameTypesOpen(false)} />}
+      {isRoomTypeManagerOpen && canRenameRoomTypes && <RoomTypeManagementModal onClose={() => setIsRoomTypeManagerOpen(false)} />}
     </div>
   );
 };

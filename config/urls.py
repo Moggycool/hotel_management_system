@@ -129,6 +129,8 @@ urlpatterns = [
     path('api/v1/feedback/', include('apps.feedback.urls')),
     path('assets/<path:path>', static_serve,
          {'document_root': settings.BASE_DIR / 'dist' / 'assets'}),
+    path('media/<path:path>', static_serve,
+         {'document_root': settings.MEDIA_ROOT}),
     path('hotel-hero.jpg', static_serve,
          {'document_root': settings.BASE_DIR / 'dist', 'path': 'hotel-hero.jpg'}),
     path('staff/', serve_spa, name='staff'),

@@ -282,7 +282,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ onOpenStaf
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               {roomGroups.map(({ room, availableCount }) => (
                 <article key={room.id} className={`overflow-hidden border bg-white transition ${selectedRoom?.id === room.id ? 'border-[#a58b4a] shadow-lg' : 'border-[#e0e3dd] shadow-sm'}`}>
-                  <img src={roomImage(room.type)} alt={`${room.type} at ${propertyName}`} className="h-56 w-full object-cover" />
+                  <img src={room.imageUrl || roomImage(room.type)} alt={`${room.type} at ${propertyName}`} className="h-56 w-full object-cover" />
                   <div className="p-5">
                     <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-wider text-[#a58b4a]">{room.type}</p><h3 className="mt-1 font-serif text-2xl">{room.bedType}</h3></div><span className="text-right text-xs text-[#77817b]">{t('{size} sq ft', { size: room.sizeSqFt })}</span></div>
                     <p className="mt-3 min-h-10 text-sm leading-5 text-[#6b7770]">{room.amenities.slice(0, 3).join(' · ') || t('Comfortable accommodation with thoughtful essentials.')}</p>

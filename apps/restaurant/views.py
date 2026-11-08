@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -30,6 +31,16 @@ class RestaurantMenuItemViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet)
         permission_class = IsRestaurantStaff if self.action in [
             'list', 'retrieve'] else IsRestaurantMenuManager
         return [permission_class()]
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_value = self.kwargs.get(
+            self.lookup_url_kwarg or self.lookup_field)
+        item = get_object_or_404(
+            queryset.filter(Q(client_id=lookup_value) | Q(code=lookup_value))
+        )
+        self.check_object_permissions(self.request, item)
+        return item
 
 
 class RestaurantOrderViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):

@@ -36,7 +36,9 @@ class RestaurantMenuItem(models.Model):
     is_vegetarian = models.BooleanField(default=False)
     preparation_minutes = models.PositiveSmallIntegerField(default=10)
     is_available = models.BooleanField(default=True, db_index=True)
+    is_alcoholic = models.BooleanField(default=False)
     image_url = models.URLField(blank=True)
+    photo = models.ImageField(upload_to='menu-items/', blank=True)
 
     class Meta:
         ordering = ['category', 'name']

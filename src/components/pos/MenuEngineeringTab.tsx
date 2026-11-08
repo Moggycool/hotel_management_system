@@ -13,12 +13,14 @@ import {
   ToggleLeft,
   ToggleRight,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import { MenuItem, MenuCategory, KitchenStation } from '../../types/hotel';
 import { useHotel } from '../../context/HotelContext';
 
 export const MenuEngineeringTab: React.FC = () => {
-  const { menuItems, toggleMenuItemAvailability, updateMenuItem, addMenuItem, settings } = useHotel();
+  const { menuItems, toggleMenuItemAvailability, updateMenuItem, addMenuItem, deleteMenuItem, settings, currentRole } = useHotel();
+  const canManageMenu = ['General Manager', 'System Administrator'].includes(currentRole);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<MenuCategory | 'all'>('all');
@@ -39,6 +41,11 @@ export const MenuEngineeringTab: React.FC = () => {
   const [newPrepMinutes, setNewPrepMinutes] = useState<number>(15);
   const [newIsFasting, setNewIsFasting] = useState<boolean>(false);
   const [newIsSpicy, setNewIsSpicy] = useState<boolean>(false);
+  const [newIsAlcoholic, setNewIsAlcoholic] = useState(false);
+  const [newPhoto, setNewPhoto] = useState<File | null>(null);
+  const [editPhoto, setEditPhoto] = useState<File | null>(null);
+  const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const filteredItems = menuItems.filter((item) => {
     if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
@@ -53,11 +60,14 @@ export const MenuEngineeringTab: React.FC = () => {
     return true;
   });
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
+  const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    addMenuItem({
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await addMenuItem({
       code: newCode.trim() || `FD-${Math.floor(10 + Math.random() * 90)}`,
       name: newName.trim(),
       nameAmharic: newNameAmharic.trim() || newName.trim(),
@@ -70,12 +80,36 @@ export const MenuEngineeringTab: React.FC = () => {
       isSpicy: newIsSpicy,
       isVegetarian: newIsFasting,
       isAvailable: true,
-    });
+      isAlcoholic: newIsAlcoholic,
+    }, newPhoto);
 
-    setIsNewItemModalOpen(false);
-    setNewName('');
-    setNewNameAmharic('');
-    setNewDesc('');
+      setIsNewItemModalOpen(false);
+      setNewName('');
+      setNewNameAmharic('');
+      setNewDesc('');
+      setNewPhoto(null);
+      setNewIsAlcoholic(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save menu item.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveItem = async () => {
+    if (!editingItem) return;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      if (await updateMenuItem(editingItem.id, editingItem, editPhoto)) {
+        setEditingItem(null);
+        setEditPhoto(null);
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save menu item.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -120,14 +154,14 @@ export const MenuEngineeringTab: React.FC = () => {
             <option value="bakery_dessert">Bakery & Dessert</option>
           </select>
 
-          <button
+          {canManageMenu && <button
             type="button"
             onClick={() => setIsNewItemModalOpen(true)}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 shrink-0"
           >
             <Plus className="w-4 h-4" />
-            Add New Dish
-          </button>
+            Add Menu Item
+          </button>}
         </div>
       </div>
 
@@ -137,8 +171,9 @@ export const MenuEngineeringTab: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <th className="py-3 px-4">Photo</th>
                 <th className="py-3 px-4">Code</th>
-                <th className="py-3 px-4">Dish Name</th>
+                <th className="py-3 px-4">Food / Liquor</th>
                 <th className="py-3 px-4">Category & Station</th>
                 <th className="py-3 px-4">Tags</th>
                 <th className="py-3 px-4">Price (ETB)</th>
@@ -150,10 +185,14 @@ export const MenuEngineeringTab: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-xs">
               {filteredItems.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-3 px-4">
+                    {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-12 w-16 rounded border border-slate-200 object-cover" /> : <span className="text-[10px] text-slate-400">No photo</span>}
+                  </td>
                   <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.code}</td>
                   <td className="py-3 px-4">
                     <span className="font-semibold text-slate-900 block">{item.name}</span>
                     <span className="text-[11px] text-amber-800 block">{item.nameAmharic}</span>
+                    {item.isAlcoholic && <span className="mt-1 inline-block rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">Alcoholic beverage</span>}
                   </td>
                   <td className="py-3 px-4">
                     <span className="font-medium text-slate-800 capitalize block">
@@ -186,7 +225,8 @@ export const MenuEngineeringTab: React.FC = () => {
                   <td className="py-3 px-4">
                     <button
                       type="button"
-                      onClick={() => toggleMenuItemAvailability(item.id)}
+                      onClick={() => canManageMenu && toggleMenuItemAvailability(item.id)}
+                      disabled={!canManageMenu}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
                         item.isAvailable
                           ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
@@ -205,14 +245,19 @@ export const MenuEngineeringTab: React.FC = () => {
                     </button>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
+                    {canManageMenu && <button
                       type="button"
                       onClick={() => setEditingItem(item)}
                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                       title="Edit dish price & details"
                     >
                       <Edit2 className="w-4 h-4" />
-                    </button>
+                    </button>}
+                    {canManageMenu && <button type="button" onClick={() => {
+                      if (window.confirm(`Delete "${item.name}" from the menu?`)) void deleteMenuItem(item.id);
+                    }} className="ml-1 rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700" title="Delete menu item">
+                      <Trash2 className="h-4 w-4" />
+                    </button>}
                   </td>
                 </tr>
               ))}
@@ -222,16 +267,40 @@ export const MenuEngineeringTab: React.FC = () => {
       </div>
 
       {/* Edit Item Modal */}
-      {editingItem && (
+      {editingItem && canManageMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-slate-900">Edit {editingItem.name}</h3>
+              <h3 className="font-bold text-base text-slate-900">Edit Menu Item</h3>
               <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Code</label>
+                <input value={editingItem.code} onChange={(e) => setEditingItem({ ...editingItem, code: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">English Name</label>
+                <input value={editingItem.name} onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Amharic Name</label>
+                <input value={editingItem.nameAmharic} onChange={(e) => setEditingItem({ ...editingItem, nameAmharic: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-xs font-semibold text-slate-700">Category
+                  <select value={editingItem.category} onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value as MenuCategory })} className="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
+                    <option value="traditional">Traditional</option><option value="fasting_vegan">Fasting / Vegan</option><option value="grill_mains">Grills & Mains</option><option value="breakfast">Breakfast</option><option value="beverages">Beverages</option><option value="desserts">Desserts</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">Kitchen Station
+                  <select value={editingItem.station} onChange={(e) => setEditingItem({ ...editingItem, station: e.target.value as KitchenStation })} className="mt-1 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm">
+                    <option value="hot_kitchen">Hot Kitchen</option><option value="cold_salad">Pantry & Salad</option><option value="bar_beverage">Bar & Beverage</option><option value="bakery_dessert">Bakery & Dessert</option>
+                  </select>
+                </label>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Price (ETB)</label>
                 <input
@@ -268,7 +337,19 @@ export const MenuEngineeringTab: React.FC = () => {
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-900"
                 />
               </div>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={Boolean(editingItem.isAlcoholic)} onChange={(e) => setEditingItem({ ...editingItem, isAlcoholic: e.target.checked, category: e.target.checked ? 'beverages' : editingItem.category, station: e.target.checked ? 'bar_beverage' : editingItem.station })} /> Liquor / alcoholic drink</label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={editingItem.isAvailable} onChange={(e) => setEditingItem({ ...editingItem, isAvailable: e.target.checked })} /> Available for sale</label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={editingItem.isFasting} onChange={(e) => setEditingItem({ ...editingItem, isFasting: e.target.checked })} /> Fasting / vegan</label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={editingItem.isSpicy} onChange={(e) => setEditingItem({ ...editingItem, isSpicy: e.target.checked })} /> Spicy</label>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu photo</label>
+                <input type="file" accept="image/*" onChange={(e) => setEditPhoto(e.target.files?.[0] || null)} className="w-full text-xs" />
+                {(editPhoto ? URL.createObjectURL(editPhoto) : editingItem.imageUrl) && <img src={editPhoto ? URL.createObjectURL(editPhoto) : editingItem.imageUrl} alt={editingItem.name} className="mt-2 h-36 w-full rounded object-cover" />}
+              </div>
             </div>
+            {saveError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">{saveError}</p>}
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
@@ -279,13 +360,11 @@ export const MenuEngineeringTab: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  updateMenuItem(editingItem.id, editingItem);
-                  setEditingItem(null);
-                }}
+                onClick={() => void handleSaveItem()}
+                disabled={isSaving}
                 className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
               >
-                Save Changes
+                {isSaving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -293,14 +372,14 @@ export const MenuEngineeringTab: React.FC = () => {
       )}
 
       {/* Add New Dish Modal */}
-      {isNewItemModalOpen && (
+      {isNewItemModalOpen && canManageMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <form
             onSubmit={handleCreateNewItem}
             className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4"
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-bold text-base text-slate-900">Add New Dish to Hotel Menu</h3>
+              <h3 className="font-bold text-base text-slate-900">Add Food or Liquor to Menu</h3>
               <button
                 type="button"
                 onClick={() => setIsNewItemModalOpen(false)}
@@ -395,7 +474,7 @@ export const MenuEngineeringTab: React.FC = () => {
                 />
               </div>
 
-              <div className="col-span-2 flex items-center gap-6 pt-1">
+              <div className="col-span-2 flex flex-wrap items-center gap-6 pt-1">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
                   <input
                     type="checkbox"
@@ -414,8 +493,26 @@ export const MenuEngineeringTab: React.FC = () => {
                   />
                   <span>Spicy (Mitmita / Awaze)</span>
                 </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                  <input type="checkbox" checked={newIsAlcoholic} onChange={(e) => {
+                    setNewIsAlcoholic(e.target.checked);
+                    if (e.target.checked) {
+                      setNewCategory('beverages');
+                      setNewStation('bar_beverage');
+                    }
+                  }} className="rounded-sm text-rose-600" />
+                  <span>Liquor / alcoholic drink</span>
+                </label>
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Menu photo</label>
+                <input type="file" accept="image/*" onChange={(e) => setNewPhoto(e.target.files?.[0] || null)} className="w-full text-xs" />
+                {newPhoto && <img src={URL.createObjectURL(newPhoto)} alt="Menu item preview" className="mt-2 h-36 w-full rounded object-cover" />}
               </div>
             </div>
+
+            {saveError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">{saveError}</p>}
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button
@@ -429,7 +526,7 @@ export const MenuEngineeringTab: React.FC = () => {
                 type="submit"
                 className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
               >
-                Add to Menu
+                {isSaving ? 'Saving…' : 'Add to Menu'}
               </button>
             </div>
           </form>

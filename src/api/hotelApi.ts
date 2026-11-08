@@ -85,7 +85,17 @@ export interface RoomTypeRecord {
   id: string;
   name: string;
   nameAmharic: string;
+  description: string;
+  basePriceEtb: number;
+  maxAdults: number;
+  maxChildren: number;
+  bedType: string;
+  sizeSqM: number;
+  amenities: string[];
+  photoUrl: string;
 }
+
+export type RoomTypeInput = Omit<RoomTypeRecord, 'id' | 'photoUrl'> & { photo?: File | null };
 
 export interface ApiReservationPayload {
   guest_name: string;
@@ -194,6 +204,7 @@ function mapBackendRoom(record: any): Room {
     capacity: Number(record.room_type.max_adults) + Number(record.room_type.max_children),
     bedType: record.room_type.bed_type,
     sizeSqFt: Math.round(Number(record.room_type.size_sqm) * 10.7639),
+    imageUrl: record.room_type.photo || undefined,
     amenities: Array.isArray(record.room_type.amenities)
       ? record.room_type.amenities.map(String)
       : typeof record.room_type.amenities === 'string'
@@ -213,6 +224,42 @@ function mapBackendRoom(record: any): Room {
     }[record.housekeeping_status as 'CLEAN' | 'DIRTY' | 'IN_PROGRESS' | 'INSPECTION_REQUIRED'] || 'clean') as Room['housekeepingStatus'],
     notes: record.notes,
   };
+}
+
+function mapBackendRoomType(record: any): RoomTypeRecord {
+  return {
+    id: String(record.id),
+    name: record.name,
+    nameAmharic: record.name_amharic || '',
+    description: record.description || '',
+    basePriceEtb: Number(record.base_price_etb || 0),
+    maxAdults: Number(record.max_adults || 0),
+    maxChildren: Number(record.max_children || 0),
+    bedType: record.bed_type || '',
+    sizeSqM: Number(record.size_sqm || 0),
+    amenities: Array.isArray(record.amenities) ? record.amenities.map(String) : [],
+    photoUrl: record.photo || '',
+  };
+}
+
+function appendRoomTypeFields(form: FormData, data: Partial<RoomTypeInput>): void {
+  const fieldMap: Record<string, string> = {
+    name: 'name',
+    nameAmharic: 'name_amharic',
+    description: 'description',
+    basePriceEtb: 'base_price_etb',
+    maxAdults: 'max_adults',
+    maxChildren: 'max_children',
+    bedType: 'bed_type',
+    sizeSqM: 'size_sqm',
+    amenities: 'amenities',
+  };
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'photo' && value instanceof File) form.append('photo', value);
+    else if (fieldMap[key] && value !== undefined) {
+      form.append(fieldMap[key], key === 'amenities' ? JSON.stringify(value) : String(value));
+    }
+  }
 }
 
 function mapBackendReservation(record: any): Reservation {
@@ -562,7 +609,8 @@ function mapBackendMenuItem(record: any): MenuItem {
     isVegetarian: Boolean(record.is_vegetarian),
     preparationMinutes: Number(record.preparation_minutes || 0),
     isAvailable: Boolean(record.is_available),
-    imageUrl: record.image_url || undefined,
+    imageUrl: record.photo || record.image_url || undefined,
+    isAlcoholic: Boolean(record.is_alcoholic),
   };
 }
 
@@ -670,7 +718,7 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async createRestaurantMenuItemInDjango(item: Omit<MenuItem, 'id'> & { id: string }): Promise<MenuItem> {
+  async createRestaurantMenuItemInDjango(item: Omit<MenuItem, 'id'> & { id: string }, photo?: File | null): Promise<MenuItem> {
     const categories: Record<MenuItem['category'], string> = {
       traditional: 'TRADITIONAL',
       grill_mains: 'GRILL_MAINS',
@@ -699,15 +747,19 @@ export const hotelApi = {
       is_vegetarian: item.isVegetarian,
       preparation_minutes: item.preparationMinutes,
       is_available: item.isAvailable,
+      is_alcoholic: Boolean(item.isAlcoholic),
       image_url: item.imageUrl || '',
     };
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {
       try {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(body)) form.append(key, String(value));
+        if (photo) form.append('photo', photo);
         const response = await apiFetch(`${baseUrl}/restaurant/menu-items/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(body),
+          headers: { Accept: 'application/json' },
+          body: form,
         });
         const payload = await response.json().catch(() => ({}));
         if (response.ok) return mapBackendMenuItem(payload);
@@ -719,7 +771,7 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async updateRestaurantMenuItemInDjango(menuItemId: string, updates: Partial<MenuItem>): Promise<MenuItem> {
+  async updateRestaurantMenuItemInDjango(menuItemId: string, updates: Partial<MenuItem>, photo?: File | null): Promise<MenuItem> {
     const categories: Record<MenuItem['category'], string> = {
       traditional: 'TRADITIONAL', grill_mains: 'GRILL_MAINS', fasting_vegan: 'FASTING_VEGAN',
       beverages: 'BEVERAGES', breakfast: 'BREAKFAST', desserts: 'DESSERTS',
@@ -732,7 +784,7 @@ export const hotelApi = {
       code: 'code', name: 'name', nameAmharic: 'name_amharic', description: 'description',
       price: 'price', isFasting: 'is_fasting', isSpicy: 'is_spicy',
       isVegetarian: 'is_vegetarian', preparationMinutes: 'preparation_minutes',
-      isAvailable: 'is_available', imageUrl: 'image_url',
+      isAvailable: 'is_available', imageUrl: 'image_url', isAlcoholic: 'is_alcoholic',
     };
     const payload: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(updates)) {
@@ -744,16 +796,37 @@ export const hotelApi = {
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {
       try {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(payload)) form.append(key, String(value));
+        if (photo) form.append('photo', photo);
         const response = await apiFetch(`${baseUrl}/restaurant/menu-items/${menuItemId}/`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(payload),
+          headers: { Accept: 'application/json' },
+          body: form,
         });
         const result = await response.json().catch(() => ({}));
         if (response.ok) return mapBackendMenuItem(result);
         lastError = JSON.stringify(result);
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'Failed to update menu item.';
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async deleteRestaurantMenuItemInDjango(menuItemId: string): Promise<void> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/restaurant/menu-items/${encodeURIComponent(menuItemId)}/`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok || response.status === 204) return;
+        const payload = await response.json().catch(() => ({}));
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
       }
     }
     throw new Error(lastError);
@@ -2029,11 +2102,7 @@ export const hotelApi = {
         if (response.ok) {
           const payload = await response.json();
           const records = Array.isArray(payload) ? payload : payload.results || [];
-          return records.map((record: any) => ({
-            id: String(record.id),
-            name: record.name,
-            nameAmharic: record.name_amharic || '',
-          }));
+          return records.map(mapBackendRoomType);
         }
         lastError = `Django returned HTTP ${response.status} while loading room types.`;
       } catch (error) {
@@ -2044,19 +2113,62 @@ export const hotelApi = {
   },
 
   async renameRoomTypeInDjango(roomTypeId: string, name: string): Promise<RoomTypeRecord> {
+    return this.updateRoomTypeInDjango(roomTypeId, { name });
+  },
+
+  async createRoomTypeInDjango(data: RoomTypeInput): Promise<RoomTypeRecord> {
+    const form = new FormData();
+    appendRoomTypeFields(form, data);
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/room-types/`, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          body: form,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRoomType(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async updateRoomTypeInDjango(roomTypeId: string, data: Partial<RoomTypeInput>): Promise<RoomTypeRecord> {
+    const form = new FormData();
+    appendRoomTypeFields(form, data);
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {
       try {
         const response = await apiFetch(`${baseUrl}/rooms/room-types/${encodeURIComponent(roomTypeId)}/`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ name }),
+          headers: { Accept: 'application/json' },
+          body: form,
         });
         const payload = await response.json().catch(() => ({}));
-        if (response.ok) {
-          return { id: String(payload.id), name: payload.name, nameAmharic: payload.name_amharic || '' };
-        }
-        lastError = payload.name?.[0] || payload.detail || `Django returned HTTP ${response.status}.`;
+        if (response.ok) return mapBackendRoomType(payload);
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async deleteRoomTypeInDjango(roomTypeId: string): Promise<void> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/room-types/${encodeURIComponent(roomTypeId)}/`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok || response.status === 204) return;
+        const payload = await response.json().catch(() => ({}));
+        lastError = payload.detail || JSON.stringify(payload);
       } catch (error) {
         lastError = error instanceof Error ? error.message : lastError;
       }

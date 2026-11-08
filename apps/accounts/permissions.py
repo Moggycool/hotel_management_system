@@ -101,11 +101,8 @@ class IsRestaurantSettlementStaff(HasRole):
 
 
 class IsRestaurantMenuManager(HasRole):
-    area = 'restaurant_menu'
-    allowed_roles = [
-        StaffRole.GENERAL_MANAGER,
-        StaffRole.FB_MANAGER,
-    ]
+    area = None
+    allowed_roles = [StaffRole.GENERAL_MANAGER]
 
 
 class IsInventoryStaff(HasRole):

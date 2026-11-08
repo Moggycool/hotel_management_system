@@ -20,6 +20,7 @@ class RoomType(models.Model):
     max_children = models.PositiveSmallIntegerField(default=1)
     bed_type = models.CharField(max_length=50, default='1 King Bed')
     size_sqm = models.PositiveSmallIntegerField(default=35)
+    photo = models.ImageField(upload_to='room-types/', blank=True)
     # e.g. ["Wi-Fi", "Lake Chamo View", "AC"]
     amenities = models.JSONField(default=list)
 
