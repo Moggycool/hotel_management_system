@@ -44,6 +44,7 @@ export const HousekeepingTab: React.FC = () => {
   const [taskAssigneeId, setTaskAssigneeId] = useState('');
   const [maintenanceAssigneeId, setMaintenanceAssigneeId] = useState('');
   const [staffLoadError, setStaffLoadError] = useState('');
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
 
   const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [maintRoomId, setMaintRoomId] = useState(rooms[0]?.id || '');
@@ -58,18 +59,21 @@ export const HousekeepingTab: React.FC = () => {
     }
   }, [rooms, taskRoomId]);
 
-  const loadAvailableStaff = async () => {
+  const loadAvailableStaff = async (workType?: 'housekeeping' | 'maintenance') => {
     if (!canAssignTasks) return;
     setStaffLoadError('');
+    setIsLoadingStaff(true);
     try {
-      const [housekeepers, technicians] = await Promise.all([
-        fetchAvailableEmployees('housekeeping'),
-        fetchAvailableEmployees('maintenance'),
-      ]);
-      setAvailableHousekeepers(housekeepers);
-      setAvailableTechnicians(technicians);
+      const workTypes = workType ? [workType] : ['housekeeping', 'maintenance'] as const;
+      const employees = await Promise.all(workTypes.map((type) => fetchAvailableEmployees(type)));
+      workTypes.forEach((type, index) => {
+        if (type === 'housekeeping') setAvailableHousekeepers(employees[index]);
+        else setAvailableTechnicians(employees[index]);
+      });
     } catch (error) {
       setStaffLoadError(error instanceof Error ? error.message : 'Could not load available employees.');
+    } finally {
+      setIsLoadingStaff(false);
     }
   };
 
@@ -163,14 +167,22 @@ export const HousekeepingTab: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {canAssignTasks && <button
-            onClick={() => setIsNewTicketOpen(true)}
+            onClick={async () => {
+              setMaintenanceAssigneeId('');
+              await loadAvailableStaff('maintenance');
+              setIsNewTicketOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-xs cursor-pointer"
           >
             <Wrench className="w-3.5 h-3.5 text-rose-600" />
             <span>New Work Order</span>
           </button>}
           <button
-            onClick={() => setIsNewTaskOpen(true)}
+            onClick={async () => {
+              setTaskAssigneeId('');
+              await loadAvailableStaff('housekeeping');
+              setIsNewTaskOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -256,7 +268,7 @@ export const HousekeepingTab: React.FC = () => {
                           <span className="text-[10px]">{task.requestedAt}</span>
                         </div>
 
-                        {canAssignTasks && task.status === 'dirty' && (
+                        {canAssignTasks && task.status !== 'clean' && (
                           <label className="block text-[11px] font-semibold text-slate-600">
                             Assign housekeeper
                             <select
@@ -440,9 +452,10 @@ export const HousekeepingTab: React.FC = () => {
               {canAssignTasks && <div>
                 <label className="font-bold text-slate-700 block mb-1">Assign available housekeeper *</label>
                 <select required value={taskAssigneeId} onChange={(e) => setTaskAssigneeId(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                  <option value="">Select an available employee</option>
+                  <option value="">{isLoadingStaff ? 'Loading available employees…' : 'Select an available employee'}</option>
                   {availableHousekeepers.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
                 </select>
+                {!isLoadingStaff && !staffLoadError && availableHousekeepers.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No available Housekeepers report to you. Check each staff member’s Reports to field and active assignments.</p>}
               </div>}
 
               <div>
@@ -471,6 +484,7 @@ export const HousekeepingTab: React.FC = () => {
               </div>
 
               {taskSaveError && <p role="alert" className="text-rose-700">{taskSaveError}</p>}
+              {staffLoadError && <p role="alert" className="text-rose-700">{staffLoadError}</p>}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
@@ -541,10 +555,12 @@ export const HousekeepingTab: React.FC = () => {
               {canAssignTasks && <div>
                 <label className="font-bold text-slate-700 block mb-1">Assign available maintenance technician *</label>
                 <select required value={maintenanceAssigneeId} onChange={(e) => setMaintenanceAssigneeId(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                  <option value="">Select an available employee</option>
+                  <option value="">{isLoadingStaff ? 'Loading available employees…' : 'Select an available employee'}</option>
                   {availableTechnicians.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
                 </select>
+                {!isLoadingStaff && !staffLoadError && availableTechnicians.length === 0 && <p className="mt-1 text-[11px] text-amber-700">No available Maintenance Technicians report to you. Check each staff member’s Reports to field and active assignments.</p>}
               </div>}
+              {staffLoadError && <p role="alert" className="text-rose-700">{staffLoadError}</p>}
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Issue Description *</label>

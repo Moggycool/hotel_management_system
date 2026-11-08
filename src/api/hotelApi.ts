@@ -871,7 +871,7 @@ export const hotelApi = {
           lastError = response.status === 401
             ? 'Email or password is incorrect.'
             : payload.detail || `Server returned HTTP ${response.status}.`;
-          continue;
+          throw new Error(lastError);
         }
 
         const roles: Record<string, StaffRole> = {
@@ -904,55 +904,7 @@ export const hotelApi = {
       }
     }
 
-    // Fallback to local staff credentials if backend server is unreachable
-    const localStaffMap: Record<string, { name: string; role: StaffRole; access: string[] }> = {
-      'gm@arbaminchhotel.et': {
-        name: 'Yonas Haile',
-        role: 'General Manager',
-        access: ['front_office', 'reservation_assignment', 'room_management', 'finance', 'housekeeping', 'night_audit', 'restaurant', 'restaurant_settlement', 'restaurant_menu', 'inventory', 'recipes'],
-      },
-      'fom@arbaminchhotel.et': {
-        name: 'Dawit Bekele',
-        role: 'Front Office Manager',
-        access: ['front_office', 'reservation_assignment', 'room_management', 'housekeeping', 'night_audit', 'finance'],
-      },
-      'reception@arbaminchhotel.et': {
-        name: 'Tigist Alemu',
-        role: 'Receptionist',
-        access: ['front_office', 'reservation_assignment', 'room_management'],
-      },
-      'cashier@arbaminchhotel.et': {
-        name: 'Kenenisa Desta',
-        role: 'Cashier',
-        access: ['finance', 'restaurant_settlement'],
-      },
-      'housekeeping@arbaminchhotel.et': {
-        name: 'Almaz Tadesse',
-        role: 'Housekeeping Supervisor',
-        access: ['housekeeping', 'room_management'],
-      },
-      'finance@arbaminchhotel.et': {
-        name: 'Mulugeta Tesfaye',
-        role: 'Finance Officer',
-        access: ['finance'],
-      },
-    };
-
-    const normEmail = email.toLowerCase().trim();
-    const local = localStaffMap[normEmail] || {
-      name: normEmail.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      role: (normEmail.includes('admin') || normEmail.includes('gm') ? 'General Manager' : 'Receptionist') as StaffRole,
-      access: ['front_office', 'reservation_assignment', 'room_management'],
-    };
-
-    basicAuthorizationHeader = authorization;
-    return {
-      id: `staff-${normEmail.replace(/[^a-z0-9]/g, '-')}`,
-      email: normEmail,
-      fullName: local.name,
-      role: local.role,
-      accessAreas: local.access,
-    };
+    throw new Error(lastError);
   },
 
   async fetchRoomsFromDjango(): Promise<Room[]> {

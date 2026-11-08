@@ -100,6 +100,11 @@ def test_supervisor_only_sees_available_direct_reports_and_assignments_persist()
         full_name='Busy Housekeeper', role=StaffRole.HOUSEKEEPER,
         reports_to=supervisor,
     )
+    replacement_worker = User.objects.create_user(
+        email='hk-replacement@example.et', password='StrongPassword#2026',
+        full_name='Replacement Housekeeper', role=StaffRole.HOUSEKEEPER,
+        reports_to=supervisor,
+    )
     other_supervisor = User.objects.create_user(
         email='hk-other-supervisor@example.et', password='StrongPassword#2026',
         full_name='Other Supervisor', role=StaffRole.HOUSEKEEPING_SUPERVISOR,
@@ -122,8 +127,9 @@ def test_supervisor_only_sees_available_direct_reports_and_assignments_persist()
     employees = client.get(
         '/api/v1/housekeeping/tasks/available-staff/?work_type=housekeeping')
     assert employees.status_code == 200
-    assert [employee['id']
-            for employee in employees.data] == [str(available_worker.id)]
+    assert {employee['id'] for employee in employees.data} == {
+        str(available_worker.id), str(replacement_worker.id),
+    }
 
     created = client.post(
         '/api/v1/housekeeping/tasks/',
@@ -136,6 +142,14 @@ def test_supervisor_only_sees_available_direct_reports_and_assignments_persist()
     assert created.status_code == 201, created.data
     task = HousekeepingTask.objects.get(pk=created.data['id'])
     assert task.assigned_to == available_worker
+
+    reassigned = client.patch(
+        f'/api/v1/housekeeping/tasks/{task.id}/',
+        {'assigned_to': str(replacement_worker.id)}, format='json',
+    )
+    assert reassigned.status_code == 200, reassigned.data
+    task.refresh_from_db()
+    assert task.assigned_to == replacement_worker
 
     unavailable = client.patch(
         f'/api/v1/housekeeping/tasks/{task.id}/',

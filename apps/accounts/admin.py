@@ -66,6 +66,12 @@ class UserAdmin(BaseUserAdmin):
                 choices=_active_role_choices,
                 initial=db_field.default,
             )
+        if db_field.name == 'reports_to':
+            kwargs['help_text'] = (
+                'Required for employees who receive assigned work. '
+                'Housekeeping and maintenance assignment lists include only '
+                'active direct reports of the signed-in supervisor.'
+            )
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     fieldsets = (
