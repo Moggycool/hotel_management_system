@@ -89,6 +89,7 @@ def test_current_user_endpoint_requires_basic_authentication(gm_user):
     client = APIClient()
     unauthorized = client.get('/api/v1/auth/me/')
     assert unauthorized.status_code == 401
+    assert 'WWW-Authenticate' not in unauthorized
 
     credentials = base64.b64encode(
         f'{gm_user.email}:StrongPassword#2026'.encode('utf-8')
