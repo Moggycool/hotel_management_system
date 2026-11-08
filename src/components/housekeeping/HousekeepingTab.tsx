@@ -23,7 +23,14 @@ export const HousekeepingTab: React.FC = () => {
     createHousekeepingTask,
     createMaintenanceTicket,
     updateMaintenanceStatus,
+    updateMaintenanceTicket,
+    assignHousekeepingTask,
+    fetchAvailableEmployees,
+    currentRole,
+    currentAccessAreas,
   } = useHotel();
+  const canAssignTasks = ['General Manager', 'Housekeeping Supervisor', 'System Administrator'].includes(currentRole)
+    || currentAccessAreas.includes('housekeeping');
 
   // State for creating new task or ticket
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
@@ -32,6 +39,11 @@ export const HousekeepingTab: React.FC = () => {
   const [taskNotes, setTaskNotes] = useState('');
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState('');
+  const [availableHousekeepers, setAvailableHousekeepers] = useState<{ id: string; fullName: string }[]>([]);
+  const [availableTechnicians, setAvailableTechnicians] = useState<{ id: string; fullName: string }[]>([]);
+  const [taskAssigneeId, setTaskAssigneeId] = useState('');
+  const [maintenanceAssigneeId, setMaintenanceAssigneeId] = useState('');
+  const [staffLoadError, setStaffLoadError] = useState('');
 
   const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
   const [maintRoomId, setMaintRoomId] = useState(rooms[0]?.id || '');
@@ -45,6 +57,25 @@ export const HousekeepingTab: React.FC = () => {
       setTaskRoomId(rooms[0]?.id || '');
     }
   }, [rooms, taskRoomId]);
+
+  const loadAvailableStaff = async () => {
+    if (!canAssignTasks) return;
+    setStaffLoadError('');
+    try {
+      const [housekeepers, technicians] = await Promise.all([
+        fetchAvailableEmployees('housekeeping'),
+        fetchAvailableEmployees('maintenance'),
+      ]);
+      setAvailableHousekeepers(housekeepers);
+      setAvailableTechnicians(technicians);
+    } catch (error) {
+      setStaffLoadError(error instanceof Error ? error.message : 'Could not load available employees.');
+    }
+  };
+
+  useEffect(() => {
+    void loadAvailableStaff();
+  }, [canAssignTasks]);
 
   const columns: { id: HousekeepingStatus; title: string; color: string; bg: string }[] = [
     { id: 'dirty', title: 'Needs Cleaning', color: 'text-rose-700', bg: 'bg-rose-50 border-rose-200' },
@@ -67,34 +98,41 @@ export const HousekeepingTab: React.FC = () => {
       status: 'dirty',
       priority: taskPriority,
       notes: taskNotes,
+      assignedToId: taskAssigneeId || undefined,
     });
     if (created) {
       setTaskNotes('');
+      setTaskAssigneeId('');
       setIsNewTaskOpen(false);
+      await loadAvailableStaff();
     } else {
       setTaskSaveError('The task could not be saved. Check the authenticated backend connection and room selection.');
     }
     setIsSavingTask(false);
   };
 
-  const handleCreateTicket = (e: React.FormEvent) => {
+  const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetRoom = rooms.find((r) => r.id === maintRoomId);
     if (!targetRoom || !maintTitle) return;
 
-    createMaintenanceTicket({
+    const created = await createMaintenanceTicket({
       roomId: targetRoom.id,
       roomNumber: targetRoom.roomNumber,
       title: maintTitle,
       category: maintCategory,
       priority: maintPriority,
       status: 'open',
-      reportedBy: 'Front Desk / Housekeeping',
+      assignedToId: maintenanceAssigneeId || undefined,
       notes: maintNotes,
     });
-    setMaintTitle('');
-    setMaintNotes('');
-    setIsNewTicketOpen(false);
+    if (created) {
+      setMaintTitle('');
+      setMaintNotes('');
+      setMaintenanceAssigneeId('');
+      setIsNewTicketOpen(false);
+      await loadAvailableStaff();
+    }
   };
 
   const getPriorityBadge = (p: HousekeepingTask['priority']) => {
@@ -124,13 +162,13 @@ export const HousekeepingTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          {canAssignTasks && <button
             onClick={() => setIsNewTicketOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-xs cursor-pointer"
           >
             <Wrench className="w-3.5 h-3.5 text-rose-600" />
             <span>New Work Order</span>
-          </button>
+          </button>}
           <button
             onClick={() => setIsNewTaskOpen(true)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs cursor-pointer"
@@ -217,6 +255,24 @@ export const HousekeepingTab: React.FC = () => {
                           </span>
                           <span className="text-[10px]">{task.requestedAt}</span>
                         </div>
+
+                        {canAssignTasks && task.status === 'dirty' && (
+                          <label className="block text-[11px] font-semibold text-slate-600">
+                            Assign housekeeper
+                            <select
+                              value={task.assignedToId || ''}
+                              onChange={async (event) => {
+                                const ok = await assignHousekeepingTask(task.id, event.target.value || null);
+                                if (ok) await loadAvailableStaff();
+                              }}
+                              className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1.5"
+                            >
+                              <option value="">Unassigned</option>
+                              {task.assignedToId && !availableHousekeepers.some((employee) => employee.id === task.assignedToId) && <option value={task.assignedToId}>{task.assignedTo}</option>}
+                              {availableHousekeepers.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
+                            </select>
+                          </label>
+                        )}
 
                         {/* Status Mover Quick Buttons */}
                         <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
@@ -308,9 +364,23 @@ export const HousekeepingTab: React.FC = () => {
                 </div>
                 <div className="font-semibold text-slate-800">{t.title}</div>
                 {t.notes && <div className="text-slate-500 text-[11px]">{t.notes}</div>}
+                <div className="text-[11px] text-slate-600">Assigned to: {t.assignedTo || 'Unassigned'}</div>
               </div>
 
               <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                {canAssignTasks && t.status !== 'resolved' && <select
+                  aria-label="Assign maintenance technician"
+                  value={t.assignedToId || ''}
+                  onChange={async (event) => {
+                    const ok = await updateMaintenanceTicket(t.id, { assignedToId: event.target.value || null });
+                    if (ok) await loadAvailableStaff();
+                  }}
+                  className="max-w-40 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs"
+                >
+                  <option value="">Unassigned</option>
+                  {t.assignedToId && !availableTechnicians.some((employee) => employee.id === t.assignedToId) && <option value={t.assignedToId}>{t.assignedTo}</option>}
+                  {availableTechnicians.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
+                </select>}
                 <span
                   className={`text-[11px] font-bold px-2.5 py-1 rounded-full capitalize ${
                     t.status === 'resolved'
@@ -367,6 +437,14 @@ export const HousekeepingTab: React.FC = () => {
                 </select>
               </div>
 
+              {canAssignTasks && <div>
+                <label className="font-bold text-slate-700 block mb-1">Assign available housekeeper *</label>
+                <select required value={taskAssigneeId} onChange={(e) => setTaskAssigneeId(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  <option value="">Select an available employee</option>
+                  {availableHousekeepers.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
+                </select>
+              </div>}
+
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Priority</label>
                 <select
@@ -404,7 +482,7 @@ export const HousekeepingTab: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingTask || !taskRoomId}
+                  disabled={isSavingTask || !taskRoomId || (canAssignTasks && !taskAssigneeId)}
                   className="px-4 py-1.5 bg-indigo-600 disabled:opacity-60 text-white font-bold rounded"
                 >
                   {isSavingTask ? 'Creating...' : 'Create Task'}
@@ -460,6 +538,14 @@ export const HousekeepingTab: React.FC = () => {
                 </div>
               </div>
 
+              {canAssignTasks && <div>
+                <label className="font-bold text-slate-700 block mb-1">Assign available maintenance technician *</label>
+                <select required value={maintenanceAssigneeId} onChange={(e) => setMaintenanceAssigneeId(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  <option value="">Select an available employee</option>
+                  {availableTechnicians.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
+                </select>
+              </div>}
+
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Issue Description *</label>
                 <input
@@ -507,6 +593,7 @@ export const HousekeepingTab: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={canAssignTasks && !maintenanceAssigneeId}
                   className="px-4 py-1.5 bg-rose-600 text-white font-bold rounded"
                 >
                   Submit Ticket

@@ -3,6 +3,7 @@ import {
   Room,
   Reservation,
   Guest,
+  AvailableEmployee,
   HousekeepingTask,
   MaintenanceTicket,
   HotelSettings,
@@ -49,6 +50,7 @@ interface HotelContextType {
   maintenanceTickets: MaintenanceTicket[];
   settings: HotelSettings;
   currentRole: StaffRole;
+  currentAccessAreas: string[];
   auditLogs: AuditLogEntry[];
   addAuditLog: (entry: Omit<AuditLogEntry, 'id' | 'timestamp'>) => void;
   searchQuery: string;
@@ -122,9 +124,12 @@ interface HotelContextType {
   renameRoomType: (roomTypeId: string, name: string) => Promise<void>;
   assignHousekeeper: (roomId: string, staffName: string) => void;
   updateHousekeepingStatus: (taskId: string, status: HousekeepingStatus) => Promise<boolean>;
-  createHousekeepingTask: (task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>) => Promise<boolean>;
-  createMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate'>) => void;
-  updateMaintenanceStatus: (ticketId: string, status: 'open' | 'in_progress' | 'resolved') => void;
+  createHousekeepingTask: (task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'> & { assignedToId?: string }) => Promise<boolean>;
+  assignHousekeepingTask: (taskId: string, employeeId: string | null) => Promise<boolean>;
+  fetchAvailableEmployees: (workType: 'housekeeping' | 'maintenance') => Promise<AvailableEmployee[]>;
+  createMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate' | 'reportedBy' | 'assignedTo'> & { assignedToId?: string }) => Promise<boolean>;
+  updateMaintenanceTicket: (ticketId: string, updates: { status?: MaintenanceTicket['status']; assignedToId?: string | null }) => Promise<boolean>;
+  updateMaintenanceStatus: (ticketId: string, status: 'open' | 'in_progress' | 'resolved') => Promise<boolean>;
   addFolioCharge: (reservationId: string, charge: { description: string; category: FolioItem['category']; amount: number }) => void;
   recordPayment: (reservationId: string, payment: { amount: number; method: PaymentMethod; referenceNumber?: string; telebirrTransactionId?: string }) => void;
   addGuest: (guest: Omit<Guest, 'id' | 'createdAt' | 'totalStays' | 'totalSpent'>) => Promise<Guest>;
@@ -201,7 +206,7 @@ const STORAGE_KEYS = {
   NIGHT_AUDITS: 'gh_hotel_night_audits_v1',
 };
 
-export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRole }> = ({ children, initialRole }) => {
+export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRole; initialAccessAreas?: string[] }> = ({ children, initialRole, initialAccessAreas = [] }) => {
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
   const [roomTypes, setRoomTypes] = useState<RoomTypeRecord[]>([]);
 
@@ -211,14 +216,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
 
   const [housekeepingTasks, setHousekeepingTasks] = useState<HousekeepingTask[]>(initialHousekeepingTasks);
 
-  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.MAINTENANCE);
-      return saved ? JSON.parse(saved) : initialMaintenanceTickets;
-    } catch {
-      return initialMaintenanceTickets;
-    }
-  });
+  const [maintenanceTickets, setMaintenanceTickets] = useState<MaintenanceTicket[]>(initialMaintenanceTickets);
 
   const [settings, setSettings] = useState<HotelSettings>(initialHotelSettings);
 
@@ -253,6 +251,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
   const [searchQuery, setSearchQuery] = useState('');
 
   const currentRole = initialRole;
+  const currentAccessAreas = initialAccessAreas;
 
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
     try {
@@ -290,6 +289,14 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     return () => {
       isCurrent = false;
     };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    hotelApi.fetchMaintenanceTicketsFromDjango()
+      .then((tickets) => { if (isCurrent) setMaintenanceTickets(tickets); })
+      .catch(() => {});
+    return () => { isCurrent = false; };
   }, []);
 
   useEffect(() => {
@@ -383,12 +390,6 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
       isCurrent = false;
     };
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.MAINTENANCE, JSON.stringify(maintenanceTickets));
-    } catch {}
-  }, [maintenanceTickets]);
 
   useEffect(() => {
     try {
@@ -964,7 +965,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
   };
 
   const createHousekeepingTask = async (
-    task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>
+    task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'> & { assignedToId?: string }
   ): Promise<boolean> => {
     try {
       const createdTask = await hotelApi.createHousekeepingTaskInDjango(task);
@@ -977,42 +978,57 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     }
   };
 
-  const createMaintenanceTicket = (ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate'>) => {
-    const newTicket: MaintenanceTicket = {
-      ...ticket,
-      id: `maint-${Date.now()}`,
-      reportedDate: new Date().toISOString().split('T')[0],
-    };
-    setMaintenanceTickets((prev) => [newTicket, ...prev]);
-
-    if (ticket.priority === 'critical' || ticket.priority === 'high') {
-      setRooms((prev) =>
-        prev.map((r) => (r.id === ticket.roomId ? { ...r, status: 'maintenance' } : r))
-      );
+  const assignHousekeepingTask = async (taskId: string, employeeId: string | null): Promise<boolean> => {
+    try {
+      const updated = await hotelApi.assignHousekeepingTask(taskId, employeeId);
+      setHousekeepingTasks((prev) => prev.map((task) => task.id === taskId ? updated : task));
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not assign housekeeping task.');
+      return false;
     }
   };
 
-  const updateMaintenanceStatus = (ticketId: string, status: 'open' | 'in_progress' | 'resolved') => {
-    let linkedRoomId = '';
-    setMaintenanceTickets((prev) =>
-      prev.map((m) => {
-        if (m.id === ticketId) {
-          linkedRoomId = m.roomId;
-          return { ...m, status };
-        }
-        return m;
-      })
-    );
+  const fetchAvailableEmployees = (workType: 'housekeeping' | 'maintenance') =>
+    hotelApi.fetchAvailableEmployees(workType);
 
-    if (status === 'resolved' && linkedRoomId) {
-      setRooms((prev) =>
-        prev.map((r) =>
-          r.id === linkedRoomId && r.status === 'maintenance'
-            ? { ...r, status: 'available', housekeepingStatus: 'clean' }
-            : r
-        )
-      );
+  const createMaintenanceTicket = async (
+    ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate' | 'reportedBy' | 'assignedTo'> & { assignedToId?: string },
+  ): Promise<boolean> => {
+    try {
+      const created = await hotelApi.createMaintenanceTicketInDjango(ticket);
+      setMaintenanceTickets((prev) => [created, ...prev]);
+      if (ticket.priority === 'critical' || ticket.priority === 'high') {
+        setRooms((prev) => prev.map((room) => room.id === ticket.roomId ? { ...room, status: 'maintenance' } : room));
+      }
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not create maintenance ticket.');
+      return false;
     }
+  };
+
+  const updateMaintenanceTicket = async (
+    ticketId: string,
+    updates: { status?: MaintenanceTicket['status']; assignedToId?: string | null },
+  ): Promise<boolean> => {
+    try {
+      const updated = await hotelApi.updateMaintenanceTicketInDjango(ticketId, updates);
+      setMaintenanceTickets((prev) => prev.map((ticket) => ticket.id === ticketId ? updated : ticket));
+      if (updated.status === 'resolved') {
+        setRooms((prev) => prev.map((room) => room.id === updated.roomId && room.status === 'maintenance'
+          ? { ...room, status: 'available' }
+          : room));
+      }
+      return true;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update maintenance ticket.');
+      return false;
+    }
+  };
+
+  const updateMaintenanceStatus = async (ticketId: string, status: 'open' | 'in_progress' | 'resolved') => {
+    return updateMaintenanceTicket(ticketId, { status });
   };
 
   const addFolioCharge = (
@@ -1605,6 +1621,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         maintenanceTickets,
         settings,
         currentRole,
+        currentAccessAreas,
         auditLogs,
         addAuditLog,
         searchQuery,
@@ -1640,7 +1657,10 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         assignHousekeeper,
         updateHousekeepingStatus,
         createHousekeepingTask,
+        assignHousekeepingTask,
+        fetchAvailableEmployees,
         createMaintenanceTicket,
+        updateMaintenanceTicket,
         updateMaintenanceStatus,
         addFolioCharge,
         recordPayment,

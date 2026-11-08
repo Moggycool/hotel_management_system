@@ -238,7 +238,7 @@ function AppContent() {
   }
 
   return (
-    <HotelProvider initialRole={staff.role}>
+    <HotelProvider initialRole={staff.role} initialAccessAreas={staff.accessAreas}>
       <HotelApp staff={staff} onLogout={handleLogout} />
     </HotelProvider>
   );

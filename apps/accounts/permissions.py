@@ -66,6 +66,7 @@ class IsHousekeepingStaff(HasRole):
         StaffRole.GENERAL_MANAGER,
         StaffRole.HOUSEKEEPING_SUPERVISOR,
         StaffRole.HOUSEKEEPER,
+        StaffRole.MAINTENANCE,
     ]
 
 

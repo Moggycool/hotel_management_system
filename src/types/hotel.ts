@@ -139,6 +139,7 @@ export interface HousekeepingTask {
   status: HousekeepingStatus;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   assignedTo: string;
+  assignedToId?: string;
   requestedAt: string;
   completedAt?: string;
   notes?: string;
@@ -154,7 +155,15 @@ export interface MaintenanceTicket {
   status: 'open' | 'in_progress' | 'resolved';
   reportedDate: string;
   reportedBy: string;
+  assignedTo?: string;
+  assignedToId?: string;
   notes?: string;
+}
+
+export interface AvailableEmployee {
+  id: string;
+  fullName: string;
+  role: StaffRole;
 }
 
 export interface HotelSettings {

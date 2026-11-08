@@ -49,7 +49,7 @@ class RoleAdmin(admin.ModelAdmin):
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    list_display = ('email', 'full_name', 'role_name',
+    list_display = ('email', 'full_name', 'role_name', 'reports_to',
                     'phone_number', 'is_active', 'is_staff')
     list_filter = ('role', 'is_active', 'is_staff')
     search_fields = ('email', 'full_name', 'phone_number')
@@ -70,7 +70,8 @@ class UserAdmin(BaseUserAdmin):
 
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        ('Personal Info', {'fields': ('full_name', 'phone_number')}),
+        ('Personal Info', {
+         'fields': ('full_name', 'phone_number', 'reports_to')}),
         ('Permissions & Role', {'fields': (
             'role', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Security & Audit', {'fields': ('is_mfa_enabled',
@@ -82,6 +83,6 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('email', 'full_name', 'role', 'password1', 'password2'),
+            'fields': ('email', 'full_name', 'role', 'reports_to', 'password1', 'password2'),
         }),
     )

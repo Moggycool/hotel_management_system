@@ -1,4 +1,4 @@
-import { CashierShiftRecord, DailyFlashReportData, Guest, HousekeepingTask, HotelSettings, MenuItem, NightAuditReport, OrderItem, RestaurantOrder, Reservation, Room, StaffRole } from '../types/hotel';
+import { AvailableEmployee, CashierShiftRecord, DailyFlashReportData, Guest, HousekeepingTask, HotelSettings, MaintenanceTicket, MenuItem, NightAuditReport, OrderItem, RestaurantOrder, Reservation, Room, StaffRole } from '../types/hotel';
 import { initialRooms, initialHotelSettings } from '../data/initialData';
 
 export interface AuthenticatedStaff {
@@ -362,10 +362,35 @@ function mapBackendHousekeepingTask(record: any): HousekeepingTask {
     status: statuses[record.status] || 'dirty',
     priority: priorities[record.priority] || 'normal',
     assignedTo: record.assigned_to_name || 'Unassigned',
+    assignedToId: record.assigned_to ? String(record.assigned_to) : undefined,
     requestedAt: record.created_at
       ? new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '',
     completedAt: record.completed_at || undefined,
+    notes: record.notes || '',
+  };
+}
+
+function mapBackendMaintenanceTicket(record: any): MaintenanceTicket {
+  const categories: Record<string, MaintenanceTicket['category']> = {
+    HVAC: 'HVAC',
+    PLUMBING: 'Plumbing',
+    ELECTRICAL: 'Electrical',
+    FURNITURE: 'Furniture',
+    ELECTRONICS: 'Electronics',
+  };
+  return {
+    id: String(record.id),
+    roomId: String(record.room),
+    roomNumber: record.room_number,
+    title: record.title,
+    category: categories[record.category] || 'Plumbing',
+    priority: String(record.priority).toLowerCase() as MaintenanceTicket['priority'],
+    status: String(record.status).toLowerCase() as MaintenanceTicket['status'],
+    reportedDate: String(record.created_at || '').slice(0, 10),
+    reportedBy: record.reported_by_name || '',
+    assignedTo: record.assigned_to_name || 'Unassigned',
+    assignedToId: record.assigned_to ? String(record.assigned_to) : undefined,
     notes: record.notes || '',
   };
 }
@@ -1959,7 +1984,30 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async createHousekeepingTaskInDjango(task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'>): Promise<HousekeepingTask> {
+  async fetchAvailableEmployees(workType: 'housekeeping' | 'maintenance'): Promise<AvailableEmployee[]> {
+    let lastError = 'Could not load available employees.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/housekeeping/tasks/available-staff/?work_type=${workType}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok && Array.isArray(payload)) {
+          return payload.map((employee: any) => ({
+            id: String(employee.id),
+            fullName: employee.full_name,
+            role: employee.role as StaffRole,
+          }));
+        }
+        lastError = payload.detail || `Server returned HTTP ${response.status}.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async createHousekeepingTaskInDjango(task: Omit<HousekeepingTask, 'id' | 'requestedAt' | 'assignedTo'> & { assignedToId?: string }): Promise<HousekeepingTask> {
     const priorities: Record<HousekeepingTask['priority'], string> = {
       low: 'LOW',
       normal: 'NORMAL',
@@ -1981,6 +2029,7 @@ export const hotelApi = {
             room: task.roomId,
             task_type: 'CHECKOUT_CLEAN',
             priority: priorities[task.priority],
+            assigned_to: task.assignedToId || null,
             notes: task.notes || '',
           }),
         });
@@ -1992,6 +2041,60 @@ export const hotelApi = {
       }
     }
     throw new Error(lastError);
+  },
+
+  async assignHousekeepingTask(taskId: string, employeeId: string | null): Promise<HousekeepingTask> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/housekeeping/tasks/${encodeURIComponent(taskId)}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ assigned_to: employeeId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return mapBackendHousekeepingTask(payload);
+  },
+
+  async fetchMaintenanceTicketsFromDjango(): Promise<MaintenanceTicket[]> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/housekeeping/maintenance/`, {
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    const records = Array.isArray(payload) ? payload : payload.results || [];
+    return records.map(mapBackendMaintenanceTicket);
+  },
+
+  async createMaintenanceTicketInDjango(ticket: Omit<MaintenanceTicket, 'id' | 'reportedDate' | 'reportedBy' | 'assignedTo'> & { assignedToId?: string }): Promise<MaintenanceTicket> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/housekeeping/maintenance/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        room: ticket.roomId,
+        title: ticket.title,
+        category: ticket.category.toUpperCase(),
+        priority: ticket.priority.toUpperCase(),
+        status: 'OPEN',
+        assigned_to: ticket.assignedToId || null,
+        notes: ticket.notes || '',
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return mapBackendMaintenanceTicket(payload);
+  },
+
+  async updateMaintenanceTicketInDjango(ticketId: string, updates: { status?: MaintenanceTicket['status']; assignedToId?: string | null }): Promise<MaintenanceTicket> {
+    const response = await apiFetch(`${getCandidateUrls()[0]}/housekeeping/maintenance/${encodeURIComponent(ticketId)}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        ...(updates.status ? { status: updates.status.toUpperCase() } : {}),
+        ...(updates.assignedToId !== undefined ? { assigned_to: updates.assignedToId } : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || JSON.stringify(payload));
+    return mapBackendMaintenanceTicket(payload);
   },
 
   async transitionHousekeepingTaskInDjango(

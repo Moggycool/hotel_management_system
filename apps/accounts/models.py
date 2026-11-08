@@ -82,6 +82,14 @@ class User(AbstractUser):
         db_index=True,
         help_text='Code of a Role defined under Roles.',
     )
+    reports_to = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='direct_reports',
+        limit_choices_to={'is_active': True},
+    )
     is_mfa_enabled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
