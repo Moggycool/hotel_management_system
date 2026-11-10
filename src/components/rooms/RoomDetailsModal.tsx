@@ -28,7 +28,7 @@ export const RoomDetailsModal: React.FC<RoomDetailsModalProps> = ({
   onBookRoom,
 }) => {
   const { saveRoom, deactivateRoom, reservations, currentRole } = useHotel();
-  const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
+  const canManageRooms = ['General Manager', 'System Administrator', 'Front Office Manager', 'Receptionist'].includes(currentRole);
   const [roomNumber, setRoomNumber] = useState(room.roomNumber);
   const [floor, setFloor] = useState(room.floor);
   const [selectedStatus, setSelectedStatus] = useState<RoomStatus>(room.status);

@@ -6,9 +6,13 @@ const ALL_TABS: ActiveTab[] = [
   'guest_feedback', 'settings',
 ];
 
+const SYSTEM_ADMIN_TABS: ActiveTab[] = [
+  'rooms', 'pos', 'inventory', 'settings', 'database_admin', 'security_audit',
+];
+
 const BUILTIN_ROLE_TABS: Record<string, ActiveTab[]> = {
   'General Manager': ALL_TABS,
-  'System Administrator': ALL_TABS,
+  'System Administrator': SYSTEM_ADMIN_TABS,
   'Front Office Manager': ['dashboard', 'rooms', 'reservations', 'guests', 'billing', 'night_audit', 'calendar', 'housekeeping', 'guest_feedback'],
   'Receptionist': ['dashboard', 'rooms', 'reservations', 'guests', 'calendar'],
   'Cashier': ['dashboard', 'guests', 'billing', 'pos'],

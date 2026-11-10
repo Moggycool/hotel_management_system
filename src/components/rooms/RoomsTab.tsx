@@ -24,7 +24,7 @@ interface RoomsTabProps {
 
 export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
   const { rooms, searchQuery, updateRoomStatus, reservations, currentRole, roomTypes } = useHotel();
-  const canManageRooms = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole);
+  const canManageRooms = ['General Manager', 'System Administrator', 'Front Office Manager', 'Receptionist'].includes(currentRole);
   const canRenameRoomTypes = ['General Manager', 'System Administrator'].includes(currentRole);
   const [isRoomTypeManagerOpen, setIsRoomTypeManagerOpen] = useState(false);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');

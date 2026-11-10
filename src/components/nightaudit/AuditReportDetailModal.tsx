@@ -31,7 +31,7 @@ export const AuditReportDetailModal: React.FC<AuditReportDetailModalProps> = ({
   const [showReopenPrompt, setShowReopenPrompt] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
 
-  const isGM = currentRole === 'General Manager';
+  const isGM = ['General Manager', 'System Administrator'].includes(currentRole);
 
   const handleConfirmReopen = () => {
     if (!reopenReason.trim()) return;

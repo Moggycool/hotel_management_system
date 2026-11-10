@@ -42,9 +42,10 @@ interface SidebarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   allowedTabs: ActiveTab[];
+  isSystemAdmin?: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allowedTabs }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allowedTabs, isSystemAdmin = false }) => {
   const { t } = useLanguage();
   const { metrics, housekeepingTasks, maintenanceTickets } = useHotel();
 
@@ -101,7 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 border-r border-slate-800">
       {/* Hotel Status Quick Glance */}
-      <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
+      {!isSystemAdmin && <div className="p-4 border-b border-slate-800/80 bg-slate-950/40">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
             {t('Live Occupancy')}
@@ -133,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
           <span>{metrics.availableRooms} {t('Available')}</span>
           <span>{metrics.cleaningRooms} {t('Cleaning')}</span>
         </div>
-      </div>
+      </div>}
 
       {/* Nav Menu */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -169,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
       </nav>
 
       {/* Footer Info */}
-      <div className="p-4 border-t border-slate-800 text-xs text-slate-500 bg-slate-950/20">
+      {!isSystemAdmin && <div className="p-4 border-t border-slate-800 text-xs text-slate-500 bg-slate-950/20">
         <div className="flex items-center justify-between text-slate-400 mb-1">
           <span>{t('Active In-House')}</span>
           <span className="font-semibold text-slate-200">{metrics.activeGuestsCount} {t('Guests')}</span>
@@ -178,7 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, allow
           <span>{t('ADR (Avg Rate)')}</span>
           <span className="font-semibold text-slate-200">${metrics.averageDailyRate}/night</span>
         </div>
-      </div>
+      </div>}
     </aside>
   );
 };

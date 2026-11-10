@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   UserCheck,
   LogOut,
+  ExternalLink,
 } from 'lucide-react';
 import { useHotel } from '../context/HotelContext';
 import { AuthenticatedStaff } from '../api/hotelApi';
@@ -19,9 +20,10 @@ interface NavbarProps {
   onOpenNewReservation: () => void;
   onOpenQuickCheckIn: () => void;
   canBook?: boolean;
+  isSystemAdmin?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn, canBook = true }) => {
+export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, onOpenNewReservation, onOpenQuickCheckIn, canBook = true, isSystemAdmin = false }) => {
   const { t } = useLanguage();
   const {
     settings,
@@ -70,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
         </div>
 
         {/* Global Search */}
-        <div className="flex-1 max-w-xs lg:max-w-md mx-2 hidden md:block">
+        {!isSystemAdmin && <div className="flex-1 max-w-xs lg:max-w-md mx-2 hidden md:block">
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -89,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
               </button>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Status / Quick Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -110,7 +112,13 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
           </div>
 
           {/* Quick Check-in CTA */}
-          {canBook && <button
+          {isSystemAdmin && <a
+            href="/admin/"
+            className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Django Admin
+          </a>}
+          {!isSystemAdmin && canBook && <button
             onClick={onOpenQuickCheckIn}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition-colors cursor-pointer"
             title={t('Express Check-in for arriving guests')}
@@ -120,7 +128,7 @@ export const Navbar: React.FC<NavbarProps> = ({ authenticatedStaff, onLogout, on
           </button>}
 
           {/* New Reservation CTA */}
-          {canBook && <button
+          {!isSystemAdmin && canBook && <button
             onClick={onOpenNewReservation}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg shadow-xs shadow-emerald-600/30 transition-all cursor-pointer"
           >

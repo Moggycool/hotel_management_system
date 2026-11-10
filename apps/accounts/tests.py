@@ -85,6 +85,18 @@ def test_user_role_assignment(gm_user, receptionist_user):
 
 
 @pytest.mark.django_db
+def test_system_administrator_role_is_granted_django_admin_access():
+    admin_user = User.objects.create_user(
+        email='system-admin-access@example.et',
+        password='StrongPassword#2026',
+        full_name='System Administrator',
+        role=StaffRole.SYSTEM_ADMIN,
+    )
+
+    assert admin_user.is_staff is True
+
+
+@pytest.mark.django_db
 def test_current_user_endpoint_requires_basic_authentication(gm_user):
     client = APIClient()
     unauthorized = client.get('/api/v1/auth/me/')

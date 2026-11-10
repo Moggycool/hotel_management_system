@@ -100,6 +100,11 @@ class User(AbstractUser):
 
     objects = UserManager()
 
+    def save(self, *args, **kwargs):
+        if self.role == StaffRole.SYSTEM_ADMIN:
+            self.is_staff = True
+        super().save(*args, **kwargs)
+
     class Meta:
         verbose_name = 'Staff User'
         verbose_name_plural = 'Staff Users'

@@ -10,8 +10,8 @@ import {
 
 export const InventoryTab: React.FC = () => {
   const { currentRole } = useHotel();
-  const canManageRecipes = ['General Manager', 'F&B Manager', 'Executive Chef'].includes(currentRole);
-  const canManageStock = ['General Manager', 'Storekeeper', 'Purchasing Officer', 'Executive Chef'].includes(currentRole);
+  const canManageRecipes = ['General Manager', 'System Administrator', 'F&B Manager', 'Executive Chef'].includes(currentRole);
+  const canManageStock = ['General Manager', 'System Administrator', 'Storekeeper', 'Purchasing Officer', 'Executive Chef'].includes(currentRole);
   const [ingredients, setIngredients] = useState<InventoryIngredient[]>([]);
   const [recipes, setRecipes] = useState<InventoryRecipeLine[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
@@ -175,7 +175,7 @@ export const InventoryTab: React.FC = () => {
             <button disabled={isSaving} className="w-full rounded-md bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-60">{isSaving ? 'Saving…' : 'Post receipt'}</button>
           </form>}
 
-          {currentRole === 'General Manager' && <form onSubmit={handleCreateIngredient} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+          {['General Manager', 'System Administrator'].includes(currentRole) && <form onSubmit={handleCreateIngredient} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
             <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><Plus className="h-4 w-4 text-indigo-700" /> New ingredient</h3>
             <input required value={ingredientSku} onChange={(event) => setIngredientSku(event.target.value)} placeholder="SKU" className="w-full rounded-md border border-slate-300 p-2 text-xs" />
             <input required value={ingredientName} onChange={(event) => setIngredientName(event.target.value)} placeholder="Ingredient name" className="w-full rounded-md border border-slate-300 p-2 text-xs" />

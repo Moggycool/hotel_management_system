@@ -28,7 +28,9 @@ import { LanguageProvider } from './context/LanguageContext';
 
 const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = ({ staff, onLogout }) => {
   const allowedTabs = getAllowedTabs(staff.role, staff.accessAreas);
-  const [activeTab, setActiveTabState] = useState<ActiveTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<ActiveTab>(
+    staff.role === 'System Administrator' ? 'rooms' : 'dashboard',
+  );
   const setActiveTab = (tab: ActiveTab) => {
     if (allowedTabs.includes(tab)) setActiveTabState(tab);
   };
@@ -62,6 +64,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
         authenticatedStaff={staff}
         onLogout={onLogout}
         canBook={canBook}
+        isSystemAdmin={staff.role === 'System Administrator'}
         onOpenNewReservation={() => handleOpenNewReservation(null)}
         onOpenQuickCheckIn={() => {
           setActiveTab('reservations');
@@ -71,7 +74,7 @@ const HotelApp: React.FC<{ staff: AuthenticatedStaff; onLogout: () => void }> = 
       {/* Main Layout Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} allowedTabs={allowedTabs} />
+        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} allowedTabs={allowedTabs} isSystemAdmin={staff.role === 'System Administrator'} />
 
         {/* Center Main Tab View */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
