@@ -1,5 +1,4 @@
 from datetime import date
-from django.db.models import Q
 from django.utils import timezone
 from apps.rooms.models import Room, RoomStatus
 from apps.reservations.models import Reservation, ReservationStatus, RoomHold
@@ -7,7 +6,13 @@ from apps.reservations.models import Reservation, ReservationStatus, RoomHold
 
 class AvailabilityEngine:
     @staticmethod
-    def get_available_rooms(check_in: date, check_out: date, room_type_id=None, exclude_reservation_id=None):
+    def get_available_rooms(
+        check_in: date,
+        check_out: date,
+        room_type_id=None,
+        exclude_reservation_id=None,
+        allow_uninspected=False,
+    ):
         if check_in >= check_out:
             raise ValueError(
                 "Check-out date must be strictly after check-in date.")
@@ -32,14 +37,25 @@ class AvailabilityEngine:
             check_out_date__gt=check_in,
         ).values_list('room_id', flat=True)
 
-        # Exclude reserved, held, or maintenance rooms
+        # Assignment requires a vacant room that housekeeping has inspected.
         unavailable_room_ids = set(list(overlapping_res) + list(active_holds))
 
         queryset = Room.objects.filter(
-            is_active=True
-        ).exclude(
-            Q(id__in=unavailable_room_ids) | Q(status=RoomStatus.MAINTENANCE)
-        ).select_related('room_type')
+            is_active=True,
+            out_of_order_requested_by__isnull=True,
+        )
+        if allow_uninspected:
+            queryset = queryset.filter(status__in=[
+                RoomStatus.VACANT_CLEAN,
+                RoomStatus.VACANT_DIRTY,
+            ])
+        else:
+            queryset = queryset.filter(
+                status=RoomStatus.VACANT_CLEAN,
+                housekeeping_status='CLEAN',
+            )
+        queryset = queryset.exclude(
+            id__in=unavailable_room_ids).select_related('room_type')
 
         if room_type_id:
             queryset = queryset.filter(room_type_id=room_type_id)

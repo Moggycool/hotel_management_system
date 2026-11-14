@@ -112,11 +112,13 @@ interface HotelContextType {
   cancelReservation: (reservationId: string) => Promise<boolean>;
   markReservationNoShow: (reservationId: string) => Promise<boolean>;
   recordReservationDeposit: (reservation: Reservation, amount: number, method: 'CASH' | 'TELEBIRR' | 'CBE_BIRR' | 'CARD' | 'BANK_TRANSFER', reference: string, notes: string) => Promise<void>;
-  updateRoomStatus: (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => void;
   updateRoom: (roomId: string, updates: Partial<Room>) => void;
   saveRoom: (roomId: string, updates: Partial<Room>) => Promise<void>;
+  setRoomOperationalStatus: (roomId: string, status: 'OUT_OF_SERVICE' | 'BLOCKED' | 'VACANT_CLEAN', reason?: string) => Promise<void>;
+  requestRoomOutOfOrder: (roomId: string, request: { reason: string; expectedReturnDate: string; maintenanceTicketId: string }) => Promise<void>;
+  confirmRoomOutOfOrder: (roomId: string) => Promise<string[]>;
   deactivateRoom: (roomId: string) => Promise<void>;
-  addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => Promise<void>;
+  addRoom: (room: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'> & { wing?: string }) => Promise<void>;
   roomTypes: RoomTypeRecord[];
   createRoomType: (data: RoomTypeInput) => Promise<RoomTypeRecord>;
   updateRoomType: (roomTypeId: string, updates: Partial<RoomTypeInput>) => Promise<RoomTypeRecord>;
@@ -136,7 +138,7 @@ interface HotelContextType {
   updateGuest: (guestId: string, updates: Partial<Guest>) => Promise<boolean>;
   updateSettings: (newSettings: Partial<HotelSettings>) => Promise<void>;
   updateReservationSyncStatus: (reservationId: string, synced: boolean, error?: string, databaseId?: string) => void;
-  updateReservationRoom: (reservationId: string, roomId: string) => Promise<void>;
+  updateReservationRoom: (reservationId: string, roomId: string, reason: string, inspectionOverride?: boolean) => Promise<void>;
 
   // Milestone 4: POS & Dining Actions
   createOrder: (data: {
@@ -851,8 +853,10 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     });
   };
 
-  const updateReservationRoom = async (reservationId: string, roomId: string) => {
-    const updatedReservation = await hotelApi.changeReservationRoomInDjango(reservationId, roomId);
+  const updateReservationRoom = async (reservationId: string, roomId: string, reason: string, inspectionOverride = false) => {
+    const updatedReservation = await hotelApi.changeReservationRoomInDjango(
+      reservationId, roomId, reason, inspectionOverride,
+    );
     setReservations((current) => current.map((reservation) =>
       reservation.databaseId === updatedReservation.databaseId || reservation.id === reservationId
         ? updatedReservation
@@ -865,21 +869,6 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     }
   };
 
-  const updateRoomStatus = (roomId: string, status: RoomStatus, housekeepingStatus?: HousekeepingStatus) => {
-    setRooms((prev) =>
-      prev.map((room) => {
-        if (room.id === roomId) {
-          return {
-            ...room,
-            status,
-            housekeepingStatus: housekeepingStatus || (status === 'cleaning' ? 'dirty' : status === 'available' ? 'clean' : room.housekeepingStatus),
-          };
-        }
-        return room;
-      })
-    );
-  };
-
   const updateRoom = (roomId: string, updates: Partial<Room>) => {
     setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, ...updates } : r)));
   };
@@ -889,12 +878,35 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     setRooms((prev) => prev.map((room) => room.id === roomId ? updatedRoom : room));
   };
 
+  const setRoomOperationalStatus = async (
+    roomId: string,
+    status: 'OUT_OF_SERVICE' | 'BLOCKED' | 'VACANT_CLEAN',
+    reason = '',
+  ) => {
+    const updatedRoom = await hotelApi.setRoomOperationalStatusInDjango(roomId, status, reason);
+    setRooms((prev) => prev.map((room) => room.id === roomId ? updatedRoom : room));
+  };
+
+  const requestRoomOutOfOrder = async (
+    roomId: string,
+    request: { reason: string; expectedReturnDate: string; maintenanceTicketId: string },
+  ) => {
+    const updatedRoom = await hotelApi.requestRoomOutOfOrderInDjango(roomId, request);
+    setRooms((prev) => prev.map((room) => room.id === roomId ? updatedRoom : room));
+  };
+
+  const confirmRoomOutOfOrder = async (roomId: string): Promise<string[]> => {
+    const result = await hotelApi.confirmRoomOutOfOrderInDjango(roomId);
+    setRooms((prev) => prev.map((room) => room.id === roomId ? result.room : room));
+    return result.warnings;
+  };
+
   const deactivateRoom = async (roomId: string) => {
     await hotelApi.deactivateRoomInDjango(roomId);
     setRooms((prev) => prev.filter((room) => room.id !== roomId));
   };
 
-  const addRoom = async (roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>) => {
+  const addRoom = async (roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'> & { wing?: string }) => {
     const createdRoom = await hotelApi.createRoomInDjango(roomData);
     setRooms((prev) => [...prev, createdRoom].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber)));
   };
@@ -998,9 +1010,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
     try {
       const created = await hotelApi.createMaintenanceTicketInDjango(ticket);
       setMaintenanceTickets((prev) => [created, ...prev]);
-      if (ticket.priority === 'critical' || ticket.priority === 'high') {
-        setRooms((prev) => prev.map((room) => room.id === ticket.roomId ? { ...room, status: 'maintenance' } : room));
-      }
+      setRooms(await hotelApi.fetchRoomsFromDjango());
       return true;
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Could not create maintenance ticket.');
@@ -1016,9 +1026,7 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
       const updated = await hotelApi.updateMaintenanceTicketInDjango(ticketId, updates);
       setMaintenanceTickets((prev) => prev.map((ticket) => ticket.id === ticketId ? updated : ticket));
       if (updated.status === 'resolved') {
-        setRooms((prev) => prev.map((room) => room.id === updated.roomId && room.status === 'maintenance'
-          ? { ...room, status: 'available' }
-          : room));
+        setRooms(await hotelApi.fetchRoomsFromDjango());
       }
       return true;
     } catch (error) {
@@ -1644,9 +1652,11 @@ export const HotelProvider: React.FC<{ children: ReactNode; initialRole: StaffRo
         cancelReservation,
         markReservationNoShow,
         recordReservationDeposit,
-        updateRoomStatus,
         updateRoom,
         saveRoom,
+        setRoomOperationalStatus,
+        requestRoomOutOfOrder,
+        confirmRoomOutOfOrder,
         deactivateRoom,
         addRoom,
         roomTypes,

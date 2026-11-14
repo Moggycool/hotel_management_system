@@ -79,7 +79,7 @@ class HousekeepingTask(models.Model):
         self.inspected_by = supervisor
         self.save()
         self.room.housekeeping_status = 'CLEAN'
-        if self.room.status != RoomStatus.OCCUPIED:
+        if self.room.status == RoomStatus.VACANT_DIRTY:
             self.room.status = RoomStatus.VACANT_CLEAN
         self.room.save(update_fields=['housekeeping_status', 'status'])
 

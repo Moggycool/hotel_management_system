@@ -97,6 +97,32 @@ export interface RoomTypeRecord {
 
 export type RoomTypeInput = Omit<RoomTypeRecord, 'id' | 'photoUrl'> & { photo?: File | null };
 
+export interface RatePlanRecord {
+  id: string;
+  name: string;
+  multiplier: string;
+  fixed_surcharge_etb: string;
+  description: string;
+  is_resident_only: boolean;
+  is_active: boolean;
+}
+
+export interface RatePlanProposalRecord {
+  id: string;
+  target_rate_plan: string | null;
+  name: string;
+  multiplier: string;
+  fixed_surcharge_etb: string;
+  description: string;
+  is_resident_only: boolean;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  proposed_by_name: string;
+  approved_by_name: string | null;
+  decision_notes: string;
+  created_at: string;
+  decided_at: string | null;
+}
+
 export interface ApiReservationPayload {
   guest_name: string;
   guest_email?: string;
@@ -199,6 +225,7 @@ function mapBackendRoom(record: any): Room {
     id: record.id,
     roomNumber: record.room_number,
     floor: record.floor,
+    wing: record.wing || '',
     type: record.room_type.name as Room['type'],
     pricePerNight: Number(record.room_type.base_price_etb),
     capacity: Number(record.room_type.max_adults) + Number(record.room_type.max_children),
@@ -210,12 +237,17 @@ function mapBackendRoom(record: any): Room {
       : typeof record.room_type.amenities === 'string'
         ? record.room_type.amenities.split(',').map((item: string) => item.trim()).filter(Boolean)
         : [],
-    status: ({
+    status: (record.out_of_order_requested_by && record.status !== 'OUT_OF_ORDER'
+      ? 'out_of_order_pending'
+      : ({
       VACANT_CLEAN: 'available',
       VACANT_DIRTY: 'cleaning',
       OCCUPIED: 'occupied',
       MAINTENANCE: 'maintenance',
-    }[record.status as 'VACANT_CLEAN' | 'VACANT_DIRTY' | 'OCCUPIED' | 'MAINTENANCE'] || 'available') as Room['status'],
+      OUT_OF_SERVICE: 'out_of_service',
+      OUT_OF_ORDER: 'out_of_order',
+      BLOCKED: 'blocked',
+      }[record.status as 'VACANT_CLEAN' | 'VACANT_DIRTY' | 'OCCUPIED' | 'MAINTENANCE' | 'OUT_OF_SERVICE' | 'OUT_OF_ORDER' | 'BLOCKED'] || 'available')) as Room['status'],
     housekeepingStatus: ({
       CLEAN: 'clean',
       DIRTY: 'dirty',
@@ -223,6 +255,10 @@ function mapBackendRoom(record: any): Room {
       INSPECTION_REQUIRED: 'inspection_needed',
     }[record.housekeeping_status as 'CLEAN' | 'DIRTY' | 'IN_PROGRESS' | 'INSPECTION_REQUIRED'] || 'clean') as Room['housekeepingStatus'],
     notes: record.notes,
+    statusReason: record.status_reason || undefined,
+    expectedReturnDate: record.expected_return_date || undefined,
+    outOfOrderTicketId: record.out_of_order_ticket || undefined,
+    outOfOrderRequestedById: record.out_of_order_requested_by || undefined,
   };
 }
 
@@ -937,9 +973,10 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async fetchAvailableRoomsFromDjango(checkIn: string, checkOut: string): Promise<Room[]> {
+  async fetchAvailableRoomsFromDjango(checkIn: string, checkOut: string, allowUninspected = false): Promise<Room[]> {
     let lastError = 'Django backend is unavailable.';
     const query = new URLSearchParams({ check_in: checkIn, check_out: checkOut });
+    if (allowUninspected) query.set('inspection_override', 'true');
 
     for (const baseUrl of getCandidateUrls()) {
       try {
@@ -957,14 +994,14 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async changeReservationRoomInDjango(reservationId: string, roomId: string): Promise<Reservation> {
+  async changeReservationRoomInDjango(reservationId: string, roomId: string, reason: string, inspectionOverride = false): Promise<Reservation> {
     let lastError = 'Django backend is unavailable.';
     for (const baseUrl of getCandidateUrls()) {
       try {
         const response = await apiFetch(`${baseUrl}/reservations/${encodeURIComponent(reservationId)}/change-room/`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ room_id: roomId }),
+          body: JSON.stringify({ room_id: roomId, reason, inspection_override: inspectionOverride }),
         });
         const payload = await response.json().catch(() => ({}));
         if (response.ok) return mapBackendReservation(payload);
@@ -2082,29 +2119,9 @@ export const hotelApi = {
     if (updates.notes !== undefined) payload.notes = updates.notes;
     if (updates.roomNumber !== undefined) payload.room_number = updates.roomNumber.trim();
     if (updates.floor !== undefined) payload.floor = updates.floor;
-
-    if (updates.status !== undefined) {
-      const statusMap: Partial<Record<Room['status'], string>> = {
-        available: 'VACANT_CLEAN',
-        occupied: 'OCCUPIED',
-        cleaning: 'VACANT_DIRTY',
-        maintenance: 'MAINTENANCE',
-      };
-      const backendStatus = statusMap[updates.status];
-      if (!backendStatus) {
-        throw new Error('Reserved status comes from an active reservation and cannot be set manually.');
-      }
-      payload.status = backendStatus;
-    }
-
-    if (updates.housekeepingStatus !== undefined) {
-      const housekeepingStatusMap: Record<Room['housekeepingStatus'], string> = {
-        clean: 'CLEAN',
-        dirty: 'DIRTY',
-        in_progress: 'IN_PROGRESS',
-        inspection_needed: 'INSPECTION_REQUIRED',
-      };
-      payload.housekeeping_status = housekeepingStatusMap[updates.housekeepingStatus];
+    if (updates.wing !== undefined) payload.wing = updates.wing.trim();
+    if (updates.status !== undefined || updates.housekeepingStatus !== undefined) {
+      throw new Error('Room status must be changed through its authorized workflow.');
     }
 
     let lastError = 'Django backend is unavailable.';
@@ -2126,6 +2143,75 @@ export const hotelApi = {
       }
     }
 
+    throw new Error(lastError);
+  },
+
+  async setRoomOperationalStatusInDjango(
+    roomId: string,
+    roomStatus: 'OUT_OF_SERVICE' | 'BLOCKED' | 'VACANT_CLEAN',
+    reason = '',
+  ): Promise<Room> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/${encodeURIComponent(roomId)}/set-operational-status/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getAuthenticatedApiHeaders() },
+          body: JSON.stringify({ status: roomStatus, reason }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRoom(payload);
+        lastError = payload.detail || payload.reason || payload.status || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async requestRoomOutOfOrderInDjango(
+    roomId: string,
+    request: { reason: string; expectedReturnDate: string; maintenanceTicketId: string },
+  ): Promise<Room> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/${encodeURIComponent(roomId)}/request-out-of-order/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getAuthenticatedApiHeaders() },
+          body: JSON.stringify({
+            reason: request.reason,
+            expected_return_date: request.expectedReturnDate,
+            maintenance_ticket_id: request.maintenanceTicketId,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return mapBackendRoom(payload);
+        lastError = payload.detail || payload.expected_return_date || payload.maintenance_ticket_id || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async confirmRoomOutOfOrderInDjango(roomId: string): Promise<{ room: Room; warnings: string[] }> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/${encodeURIComponent(roomId)}/confirm-out-of-order/`, {
+          method: 'POST',
+          headers: { Accept: 'application/json', ...getAuthenticatedApiHeaders() },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          return { room: mapBackendRoom(payload.room), warnings: payload.warnings || [] };
+        }
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
     throw new Error(lastError);
   },
 
@@ -2160,6 +2246,81 @@ export const hotelApi = {
           return records.map(mapBackendRoomType);
         }
         lastError = `Django returned HTTP ${response.status} while loading room types.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchRatePlansFromDjango(): Promise<RatePlanRecord[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/rate-plans/`, { headers: { Accept: 'application/json' } });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return Array.isArray(payload) ? payload : payload.results || [];
+        lastError = payload.detail || `Django returned HTTP ${response.status} while loading rate plans.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async fetchRatePlanProposals(): Promise<RatePlanProposalRecord[]> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/rate-plan-proposals/`, { headers: { Accept: 'application/json' } });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return Array.isArray(payload) ? payload : payload.results || [];
+        lastError = payload.detail || `Django returned HTTP ${response.status} while loading rate proposals.`;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async submitRatePlanProposal(data: {
+    target_rate_plan?: string;
+    name: string;
+    multiplier: string;
+    fixed_surcharge_etb: string;
+    description: string;
+    is_resident_only: boolean;
+  }): Promise<RatePlanProposalRecord> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/rate-plan-proposals/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ ...data, target_rate_plan: data.target_rate_plan || null }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return payload;
+        lastError = payload.detail || JSON.stringify(payload);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    throw new Error(lastError);
+  },
+
+  async decideRatePlanProposal(id: string, decision: 'approve' | 'reject', decisionNotes: string): Promise<RatePlanProposalRecord> {
+    let lastError = 'Django backend is unavailable.';
+    for (const baseUrl of getCandidateUrls()) {
+      try {
+        const response = await apiFetch(`${baseUrl}/rooms/rate-plan-proposals/${encodeURIComponent(id)}/${decision}/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ decision_notes: decisionNotes }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) return payload;
+        lastError = payload.detail || payload.decision_notes || JSON.stringify(payload);
       } catch (error) {
         lastError = error instanceof Error ? error.message : lastError;
       }
@@ -2231,7 +2392,7 @@ export const hotelApi = {
     throw new Error(lastError);
   },
 
-  async createRoomInDjango(roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'>): Promise<Room> {
+  async createRoomInDjango(roomData: Pick<Room, 'roomNumber' | 'floor' | 'type' | 'notes'> & { wing?: string }): Promise<Room> {
     const backendTypeName = roomData.type;
 
     let lastError = 'Django backend is unavailable.';
@@ -2263,6 +2424,7 @@ export const hotelApi = {
             room_number: roomData.roomNumber,
             room_type_id: roomType.id,
             floor: roomData.floor,
+            wing: roomData.wing?.trim() || '',
             status: 'VACANT_CLEAN',
             housekeeping_status: 'CLEAN',
             notes: roomData.notes || '',

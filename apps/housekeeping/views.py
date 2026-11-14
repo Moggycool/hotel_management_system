@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from django.db.models import Q
 from django.utils import timezone
 from apps.accounts.models import StaffRole, User
-from apps.accounts.permissions import IsHousekeepingStaff
+from apps.accounts.permissions import IsFrontOfficeStaff, IsHousekeepingStaff
 from django.db import transaction
 from .models import HousekeepingTask, MaintenanceTicket
 from .serializers import HousekeepingTaskSerializer, MaintenanceTicketSerializer
@@ -13,6 +13,7 @@ from apps.rooms.models import RoomStatus
 from apps.audit.mixins import AuditedModelViewSetMixin
 from apps.audit.models import AuditModule
 from apps.audit.services import log_audit_event
+from apps.billing.models import Folio
 
 
 class HousekeepingTaskViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
@@ -27,6 +28,11 @@ class HousekeepingTaskViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
     audit_name = 'HOUSEKEEPING_TASK'
     audit_fields = ('id', 'room_id', 'task_type',
                     'status', 'priority', 'assigned_to_id')
+
+    def get_permissions(self):
+        if self.action == 'pass_inspection':
+            return [(IsHousekeepingStaff | IsFrontOfficeStaff)()]
+        return super().get_permissions()
 
     def get_queryset(self):
         user = self.request.user
@@ -126,6 +132,21 @@ class HousekeepingTaskViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             task = HousekeepingTask.objects.select_for_update().get(pk=self.get_object().pk)
             if task.status != 'INSPECTION_REQUIRED':
                 return Response({'error': 'Only tasks awaiting inspection can be approved.'}, status=status.HTTP_409_CONFLICT)
+            if request.user.role == StaffRole.HOUSEKEEPING_SUPERVISOR:
+                pass
+            elif (
+                task.assigned_to_id
+                and task.assigned_to.role == StaffRole.HOUSEKEEPING_SUPERVISOR
+                and request.user.role in [StaffRole.FRONT_OFFICE_MANAGER, StaffRole.RECEPTIONIST]
+            ):
+                pass
+            else:
+                raise PermissionDenied(
+                    'A Housekeeping Supervisor must inspect the room, unless the supervisor performed the cleaning and Front Office must inspect it.')
+            if task.room.status == RoomStatus.VACANT_DIRTY and Folio.objects.filter(
+                reservation__room=task.room, is_closed=False,
+            ).exists():
+                return Response({'error': 'Close the guest folio before certifying this room as sellable.'}, status=status.HTTP_409_CONFLICT)
             task.pass_inspection(supervisor=request.user)
             log_audit_event(
                 module=AuditModule.HOUSEKEEPING,
@@ -179,20 +200,22 @@ class MaintenanceTicketViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.role == StaffRole.MAINTENANCE:
-            return self.queryset.filter(assigned_to=user)
+            return self.queryset.filter(Q(assigned_to=user) | Q(reported_by=user))
         return self.queryset.filter(
             Q(assigned_to__reports_to=user) | Q(assigned_to__isnull=True)
         ).distinct()
 
     def perform_create(self, serializer):
-        if not (self.request.user.role in [StaffRole.GENERAL_MANAGER, StaffRole.SYSTEM_ADMIN, StaffRole.HOUSEKEEPING_SUPERVISOR]
-                or 'housekeeping' in self.request.user.role_access_areas()):
+        user = self.request.user
+        if user.role == StaffRole.MAINTENANCE:
+            if serializer.validated_data.get('assigned_to'):
+                raise PermissionDenied(
+                    'Maintenance Technicians can report work orders but cannot assign them.')
+        elif not (user.role in [StaffRole.GENERAL_MANAGER, StaffRole.SYSTEM_ADMIN, StaffRole.HOUSEKEEPING_SUPERVISOR]
+                  or 'housekeeping' in user.role_access_areas()):
             raise PermissionDenied(
-                'Only a task supervisor can create maintenance work orders.')
-        ticket = serializer.save(reported_by=self.request.user)
-        if ticket.priority in ['HIGH', 'CRITICAL']:
-            ticket.room.status = RoomStatus.MAINTENANCE
-            ticket.room.save(update_fields=['status'])
+                'Only Maintenance Technicians or task supervisors can create maintenance work orders.')
+        serializer.save(reported_by=user)
 
     def perform_update(self, serializer):
         ticket = serializer.save()

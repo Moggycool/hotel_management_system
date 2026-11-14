@@ -58,6 +58,13 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             permission_class = IsFrontOfficeStaff
         return [permission_class()]
 
+    def perform_update(self, serializer):
+        if serializer.validated_data.get('room', serializer.instance.room) != serializer.instance.room:
+            raise serializers.ValidationError({
+                'room': 'Use the room-move workflow and provide a reason.'
+            })
+        serializer.save()
+
     @action(detail=False, methods=['get'], url_path='public-info')
     def public_info(self, request):
         property_config = Property.objects.order_by('created_at').first()
@@ -345,6 +352,14 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
         except serializers.ValidationError as error:
             return Response({'room_id': error.detail}, status=status.HTTP_400_BAD_REQUEST)
 
+        reason = str(request.data.get('reason', '')).strip()
+        if not reason:
+            return Response({'reason': 'A reason is required for every room move.'}, status=status.HTTP_400_BAD_REQUEST)
+        inspection_override = str(
+            request.data.get('inspection_override', '')).lower() in ['true', '1', 'yes']
+        if inspection_override and request.user.role != StaffRole.FRONT_OFFICE_MANAGER:
+            return Response({'detail': 'Only the Front Office Manager can override room inspection status.'}, status=status.HTTP_403_FORBIDDEN)
+
         with transaction.atomic():
             reservation = get_object_or_404(
                 Reservation.objects.select_for_update().select_related('room'),
@@ -353,49 +368,103 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
             if reservation.status not in [
                 ReservationStatus.PAYMENT_PENDING,
                 ReservationStatus.CONFIRMED,
+                ReservationStatus.CHECKED_IN,
             ]:
                 return Response(
-                    {'detail': 'Room assignment can only be changed before check-in.'},
+                    {'detail': 'Room assignment cannot be changed after checkout, cancellation, or no-show.'},
                     status=status.HTTP_409_CONFLICT,
                 )
+            if reservation.status == ReservationStatus.CHECKED_IN and request.user.role != StaffRole.FRONT_OFFICE_MANAGER:
+                return Response({'detail': 'Only the Front Office Manager can move an in-house guest.'}, status=status.HTTP_403_FORBIDDEN)
 
+            previous_room = Room.objects.select_for_update().get(pk=reservation.room_id)
             room = get_object_or_404(
                 Room.objects.select_for_update().select_related('room_type'),
                 pk=room_id,
                 is_active=True,
             )
-            if room.status != RoomStatus.VACANT_CLEAN or room.housekeeping_status != 'CLEAN':
+            is_inspected = (
+                room.status == RoomStatus.VACANT_CLEAN
+                and room.housekeeping_status == 'CLEAN'
+            )
+            can_override_inspection = (
+                inspection_override
+                and reservation.status != ReservationStatus.CHECKED_IN
+                and room.status == RoomStatus.VACANT_DIRTY
+            )
+            if not is_inspected and not can_override_inspection:
                 return Response(
-                    {'detail': 'Choose a clean, vacant room.'},
+                    {'detail': 'Choose a clean, vacant room. Only the Front Office Manager can override a dirty-room assignment.'},
                     status=status.HTTP_409_CONFLICT,
                 )
             if not AvailabilityEngine.get_available_rooms(
                 reservation.check_in_date,
                 reservation.check_out_date,
                 exclude_reservation_id=reservation.pk,
+                allow_uninspected=inspection_override,
             ).filter(pk=room.pk).exists():
                 return Response(
                     {'detail': 'This room is unavailable for the reservation dates.'},
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            previous_room = reservation.room
             if previous_room.pk != room.pk:
                 reservation.room = room
                 reservation.save(update_fields=['room', 'updated_at'])
+                if reservation.status == ReservationStatus.CHECKED_IN:
+                    previous_room.status = RoomStatus.VACANT_DIRTY
+                    previous_room.housekeeping_status = 'DIRTY'
+                    previous_room.save(
+                        update_fields=['status', 'housekeeping_status'])
+                    room.status = RoomStatus.OCCUPIED
+                    room.save(update_fields=['status'])
+                    HousekeepingTask.objects.bulk_create([
+                        HousekeepingTask(
+                            room=previous_room,
+                            task_type='CHECKOUT_CLEAN',
+                            status='PENDING',
+                            priority='HIGH',
+                            notes=f'Room move for {reservation.confirmation_code}. {reason}',
+                        ),
+                        HousekeepingTask(
+                            room=room,
+                            task_type='STAYOVER_REFRESH',
+                            status='PENDING',
+                            priority='NORMAL',
+                            notes=f'Room move for {reservation.confirmation_code}. {reason}',
+                        ),
+                    ])
                 log_audit_event(
                     module=AuditModule.RESERVATION,
                     action='RESERVATION_ROOM_CHANGED',
                     details=(
                         f'Reservation {reservation.confirmation_code} moved from '
-                        f'room {previous_room.room_number} to room {room.room_number}.'
+                        f'room {previous_room.room_number} to room {room.room_number}. Reason: {reason}'
                     ),
                     request=request,
                     before_state={'room_id': str(
                         previous_room.pk), 'room_number': previous_room.room_number},
                     after_state={'room_id': str(
-                        room.pk), 'room_number': room.room_number},
+                        room.pk), 'room_number': room.room_number, 'reason': reason},
                 )
+                if can_override_inspection:
+                    log_audit_event(
+                        module=AuditModule.ROOMS,
+                        action='ROOM_ASSIGNMENT_INSPECTION_OVERRIDE',
+                        details=(
+                            f'Front Office Manager {request.user.full_name} assigned '
+                            f'room {room.room_number} before inspection. Reason: {reason}'
+                        ),
+                        request=request,
+                        severity='WARNING',
+                        before_state={
+                            'housekeeping_status': room.housekeeping_status},
+                        after_state={
+                            'reservation_id': str(reservation.pk),
+                            'room_id': str(room.pk),
+                            'reason': reason,
+                        },
+                    )
 
         return Response(ReservationSerializer(reservation).data)
 
@@ -457,6 +526,17 @@ class ReservationViewSet(AuditedModelViewSetMixin, viewsets.ModelViewSet):
                 return Response({'error': 'Only checked-in reservations can be checked out.'}, status=status.HTTP_409_CONFLICT)
 
             room = Room.objects.select_for_update().get(pk=reservation.room_id)
+            folio = Folio.objects.select_for_update().filter(
+                reservation=reservation,
+            ).first()
+            if folio and folio.balance_due > Decimal('0.00'):
+                return Response({'error': 'Settle the guest folio before checkout.'}, status=status.HTTP_409_CONFLICT)
+            if folio and not folio.is_closed:
+                folio.is_closed = True
+                folio.closed_at = timezone.now()
+                folio.save(update_fields=['is_closed',
+                           'closed_at', 'updated_at'])
+
             reservation.status = 'CHECKED_OUT'
             reservation.actual_check_out_time = timezone.now()
             reservation.save(

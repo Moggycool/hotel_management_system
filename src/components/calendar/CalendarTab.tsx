@@ -158,7 +158,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                         {room.roomNumber}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-medium text-slate-600">
-                        Fl {room.floor}
+                        Fl {room.floor}{room.wing ? ` · ${room.wing}` : ''}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 font-medium truncate max-w-[170px]">
@@ -194,9 +194,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                               <span className="capitalize">{res.status.replace('_', ' ')}</span>
                             </div>
                           </div>
-                        ) : room.status === 'maintenance' ? (
+                        ) : room.status !== 'available' ? (
                           <div className="p-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
-                            Maintenance
+                            {room.status.replace(/_/g, ' ')}
                           </div>
                         ) : (
                           <button

@@ -1,6 +1,6 @@
 export type RoomType = string;
 
-export type RoomStatus = 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
+export type RoomStatus = 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance' | 'out_of_service' | 'out_of_order_pending' | 'out_of_order' | 'blocked';
 
 export type HousekeepingStatus = 'clean' | 'dirty' | 'in_progress' | 'inspection_needed';
 
@@ -8,6 +8,7 @@ export interface Room {
   id: string;
   roomNumber: string; // e.g. "101", "205", "401"
   floor: number;
+  wing?: string;
   type: RoomType;
   pricePerNight: number;
   capacity: number;
@@ -17,6 +18,10 @@ export interface Room {
   amenities: string[];
   status: RoomStatus;
   housekeepingStatus: HousekeepingStatus;
+  statusReason?: string;
+  expectedReturnDate?: string;
+  outOfOrderTicketId?: string;
+  outOfOrderRequestedById?: string;
   assignedHousekeeper?: string;
   currentReservationId?: string;
   notes?: string;

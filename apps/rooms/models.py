@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+from django.conf import settings
 from django.db import models
 
 
@@ -8,6 +9,9 @@ class RoomStatus(models.TextChoices):
     VACANT_DIRTY = 'VACANT_DIRTY', 'Vacant Dirty (Turnover Queue)'
     OCCUPIED = 'OCCUPIED', 'Occupied'
     MAINTENANCE = 'MAINTENANCE', 'Under Maintenance / Out of Order'
+    OUT_OF_SERVICE = 'OUT_OF_SERVICE', 'Out of Service'
+    OUT_OF_ORDER = 'OUT_OF_ORDER', 'Out of Order'
+    BLOCKED = 'BLOCKED', 'Blocked'
 
 
 class RoomType(models.Model):
@@ -44,6 +48,7 @@ class Room(models.Model):
     room_type = models.ForeignKey(
         RoomType, on_delete=models.PROTECT, related_name='rooms')
     floor = models.PositiveSmallIntegerField(default=1)
+    wing = models.CharField(max_length=50, blank=True)
     status = models.CharField(
         max_length=20,
         choices=RoomStatus.choices,
@@ -55,6 +60,29 @@ class Room(models.Model):
         choices=HOUSEKEEPING_STATUS_CHOICES,
         default='CLEAN',
         db_index=True,
+    )
+    status_reason = models.TextField(blank=True)
+    expected_return_date = models.DateField(null=True, blank=True)
+    out_of_order_ticket = models.ForeignKey(
+        'housekeeping.MaintenanceTicket',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='out_of_order_rooms',
+    )
+    out_of_order_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='requested_out_of_order_rooms',
+    )
+    out_of_order_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_out_of_order_rooms',
     )
     is_active = models.BooleanField(default=True)
     notes = models.CharField(max_length=255, blank=True)
@@ -82,3 +110,43 @@ class RatePlan(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class RatePlanProposal(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending Approval'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    target_rate_plan = models.ForeignKey(
+        RatePlan, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='change_proposals',
+    )
+    name = models.CharField(max_length=100)
+    multiplier = models.DecimalField(
+        max_digits=4, decimal_places=2, default=Decimal('1.00'))
+    fixed_surcharge_etb = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    description = models.CharField(max_length=255)
+    is_resident_only = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default='PENDING', db_index=True)
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='rate_plan_proposals',
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='approved_rate_plan_proposals',
+    )
+    decision_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.get_status_display()})'

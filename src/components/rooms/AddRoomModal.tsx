@@ -11,6 +11,7 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
   const { addRoom, rooms, roomTypes } = useHotel();
   const [roomNumber, setRoomNumber] = useState('');
   const [floor, setFloor] = useState(1);
+  const [wing, setWing] = useState('');
   const typeNames = roomTypes.length > 0
     ? roomTypes.map((t) => t.name)
     : Array.from(new Set(rooms.map((r) => r.type)));
@@ -34,6 +35,7 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
       await addRoom({
         roomNumber: roomNumber.trim(),
         floor: Number(floor),
+        wing: wing.trim(),
         type,
         notes: notes.trim(),
       });
@@ -52,6 +54,11 @@ export const AddRoomModal: React.FC<AddRoomModalProps> = ({ onClose }) => {
           <div className="flex items-center gap-2">
             <BedDouble className="w-5 h-5 text-indigo-400" />
             <h3 className="font-bold text-base">Add Room to Inventory</h3>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 block mb-1">Wing</label>
+            <input maxLength={50} value={wing} onChange={(event) => setWing(event.target.value)} placeholder="e.g. North Wing" className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
           </div>
           <button
             onClick={onClose}

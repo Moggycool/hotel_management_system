@@ -11,21 +11,25 @@ import {
   AlertCircle,
   Eye,
   SlidersHorizontal,
+  Percent,
 } from 'lucide-react';
 import { useHotel } from '../../context/HotelContext';
 import { Room, RoomStatus, RoomType, HousekeepingStatus } from '../../types/hotel';
 import { RoomDetailsModal } from './RoomDetailsModal';
 import { AddRoomModal } from './AddRoomModal';
 import { RoomTypeManagementModal } from './RoomTypeManagementModal';
+import { RatePlanProposalsModal } from './RatePlanProposalsModal';
 
 interface RoomsTabProps {
   onBookRoom: (room: Room) => void;
 }
 
 export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
-  const { rooms, searchQuery, updateRoomStatus, reservations, currentRole, roomTypes } = useHotel();
+  const { rooms, searchQuery, reservations, currentRole, roomTypes } = useHotel();
   const canManageRooms = ['General Manager', 'System Administrator', 'Front Office Manager', 'Receptionist'].includes(currentRole);
   const canRenameRoomTypes = ['General Manager', 'System Administrator'].includes(currentRole);
+  const canManageRateProposals = ['Front Office Manager', 'General Manager'].includes(currentRole);
+  const [isRatePlanProposalsOpen, setIsRatePlanProposalsOpen] = useState(false);
   const [isRoomTypeManagerOpen, setIsRoomTypeManagerOpen] = useState(false);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -43,9 +47,10 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
       const q = searchQuery.toLowerCase();
       const matchNum = r.roomNumber.toLowerCase().includes(q);
       const matchType = r.type.toLowerCase().includes(q);
+      const matchWing = r.wing?.toLowerCase().includes(q);
       const matchNotes = r.notes?.toLowerCase().includes(q);
       const matchAmenities = r.amenities.some((a) => a.toLowerCase().includes(q));
-      if (!matchNum && !matchType && !matchNotes && !matchAmenities) return false;
+      if (!matchNum && !matchType && !matchWing && !matchNotes && !matchAmenities) return false;
     }
     return true;
   });
@@ -64,6 +69,14 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
         return { label: 'Housekeeping', bg: 'bg-orange-50 text-orange-700 border-orange-200' };
       case 'maintenance':
         return { label: 'Maintenance', bg: 'bg-rose-50 text-rose-700 border-rose-200' };
+      case 'out_of_service':
+        return { label: 'Out of Service', bg: 'bg-orange-50 text-orange-800 border-orange-200' };
+      case 'out_of_order_pending':
+        return { label: 'OOO Pending Approval', bg: 'bg-amber-50 text-amber-800 border-amber-200' };
+      case 'out_of_order':
+        return { label: 'Out of Order', bg: 'bg-rose-50 text-rose-800 border-rose-200' };
+      case 'blocked':
+        return { label: 'Blocked', bg: 'bg-slate-100 text-slate-700 border-slate-300' };
       default:
         return { label: status, bg: 'bg-slate-50 text-slate-700 border-slate-200' };
     }
@@ -98,6 +111,12 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
         </div>
 
         <div className="flex items-center gap-2">
+          {canManageRateProposals && <button
+            onClick={() => setIsRatePlanProposalsOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+          >
+            <Percent className="h-4 w-4" /> Rate Plans
+          </button>}
           {/* View mode toggle */}
           <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
             <button
@@ -173,7 +192,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>Status:</span>
           </div>
-          {(['all', 'available', 'occupied', 'reserved', 'cleaning', 'maintenance'] as const).map(
+          {(['all', 'available', 'occupied', 'reserved', 'cleaning', 'maintenance', 'out_of_service', 'out_of_order_pending', 'out_of_order', 'blocked'] as const).map(
             (st) => (
               <button
                 key={st}
@@ -229,7 +248,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
                         {room.roomNumber}
                       </span>
                       <span className="text-[11px] text-slate-500 block font-medium">
-                        Floor {room.floor}
+                        Floor {room.floor}{room.wing ? ` · ${room.wing}` : ''}
                       </span>
                     </div>
 
@@ -270,6 +289,11 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
                       <span className="text-[10px] text-rose-700 block">
                         {room.notes || 'Under inspection'}
                       </span>
+                    </div>
+                  ) : ['out_of_service', 'out_of_order_pending', 'out_of_order', 'blocked'].includes(room.status) ? (
+                    <div className="p-2 rounded-lg bg-rose-50/70 border border-rose-100 text-[11px] text-rose-950 truncate mb-3">
+                      <span className="font-bold block capitalize">{room.status.replace(/_/g, ' ')}</span>
+                      <span className="text-[10px] text-rose-700 block">{room.statusReason || 'Not available for assignment'}</span>
                     </div>
                   ) : (
                     <div className="p-2 rounded-lg bg-emerald-50/60 border border-emerald-100 text-[11px] text-emerald-900 mb-3 flex items-center justify-between">
@@ -337,7 +361,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
                     <td className="p-3 font-mono font-bold text-slate-900 text-sm">
                       {room.roomNumber}
                     </td>
-                    <td className="p-3 text-slate-600">Floor {room.floor}</td>
+                    <td className="p-3 text-slate-600">Floor {room.floor}{room.wing ? ` · ${room.wing}` : ''}</td>
                     <td className="p-3 font-semibold text-slate-800">{room.type}</td>
                     <td className="p-3 text-slate-500">
                       {room.bedType} ({room.sizeSqFt} sq ft)
@@ -402,6 +426,7 @@ export const RoomsTab: React.FC<RoomsTabProps> = ({ onBookRoom }) => {
       {/* Add Room Modal */}
       {isAddRoomOpen && canManageRooms && <AddRoomModal onClose={() => setIsAddRoomOpen(false)} />}
       {isRoomTypeManagerOpen && canRenameRoomTypes && <RoomTypeManagementModal onClose={() => setIsRoomTypeManagerOpen(false)} />}
+      {isRatePlanProposalsOpen && canManageRateProposals && <RatePlanProposalsModal onClose={() => setIsRatePlanProposalsOpen(false)} />}
     </div>
   );
 };

@@ -40,6 +40,7 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
     addFolioCharge,
     recordPayment,
     reservations,
+    rooms,
     settings,
     updateReservationSyncStatus,
     updateReservationRoom,
@@ -69,21 +70,28 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
   const [isEditingRoom, setIsEditingRoom] = useState(false);
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [roomChangeReason, setRoomChangeReason] = useState('');
+  const [inspectionOverride, setInspectionOverride] = useState(false);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [isChangingRoom, setIsChangingRoom] = useState(false);
   const [roomChangeError, setRoomChangeError] = useState('');
 
-  const canChangeRoom = ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole)
-    && ['payment_pending', 'confirmed'].includes(currentRes.status)
-    && Boolean(currentRes.databaseId);
+  const canChangeRoom = Boolean(currentRes.databaseId) && (
+    currentRes.status === 'checked_in'
+      ? currentRole === 'Front Office Manager'
+      : ['General Manager', 'Front Office Manager', 'Receptionist'].includes(currentRole)
+        && ['payment_pending', 'confirmed'].includes(currentRes.status)
+  );
 
   const openRoomEditor = async () => {
     setIsEditingRoom(true);
     setIsLoadingRooms(true);
     setRoomChangeError('');
+    setRoomChangeReason('');
+    setInspectionOverride(false);
     try {
-      const rooms = await hotelApi.fetchAvailableRoomsFromDjango(currentRes.checkInDate, currentRes.checkOutDate);
-      const cleanRooms = rooms.filter((room) => room.status === 'available' && room.housekeepingStatus === 'clean');
+      const available = await hotelApi.fetchAvailableRoomsFromDjango(currentRes.checkInDate, currentRes.checkOutDate);
+      const cleanRooms = available.filter((room) => room.status === 'available' && room.housekeepingStatus === 'clean');
       setAvailableRooms(cleanRooms);
       setSelectedRoomId(cleanRooms[0]?.id || '');
     } catch (error) {
@@ -95,11 +103,11 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
 
   const handleChangeRoom = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedRoomId || !currentRes.databaseId) return;
+    if (!selectedRoomId || !currentRes.databaseId || !roomChangeReason.trim()) return;
     setIsChangingRoom(true);
     setRoomChangeError('');
     try {
-      await updateReservationRoom(currentRes.databaseId, selectedRoomId);
+      await updateReservationRoom(currentRes.databaseId, selectedRoomId, roomChangeReason.trim(), inspectionOverride);
       setIsEditingRoom(false);
     } catch (error) {
       setRoomChangeError(error instanceof Error ? error.message : 'Could not change the assigned room.');
@@ -287,15 +295,32 @@ export const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = (
             <form onSubmit={handleChangeRoom} className="space-y-3 border border-indigo-200 bg-indigo-50/60 p-4">
               <div>
                 <h4 className="text-sm font-bold text-slate-900">Reassign reservation room</h4>
-                <p className="mt-1 text-xs text-slate-600">Only clean rooms available for these dates are listed. Payment and reservation totals will not change.</p>
+                <p className="mt-1 text-xs text-slate-600">The folio and reservation totals remain attached; a reason is recorded.</p>
               </div>
+              {currentRole === 'Front Office Manager' && currentRes.status !== 'checked_in' && <label className="flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" checked={inspectionOverride} disabled={isLoadingRooms || isChangingRoom} onChange={async (event) => {
+                const allowUninspected = event.target.checked;
+                setInspectionOverride(allowUninspected);
+                setIsLoadingRooms(true);
+                setRoomChangeError('');
+                try {
+                  const roomsForDates = await hotelApi.fetchAvailableRoomsFromDjango(currentRes.checkInDate, currentRes.checkOutDate, allowUninspected);
+                  const selectableRooms = roomsForDates.filter((room) => room.status === 'available' || (allowUninspected && room.status === 'cleaning'));
+                  setAvailableRooms(selectableRooms);
+                  setSelectedRoomId(selectableRooms[0]?.id || '');
+                } catch (error) {
+                  setRoomChangeError(error instanceof Error ? error.message : 'Could not load eligible rooms.');
+                } finally {
+                  setIsLoadingRooms(false);
+                }
+              }} /><span><strong>Override inspection</strong> Allow a vacant dirty room to be assigned before inspection. The reason is mandatory and the exception is logged; check-in remains blocked until inspection.</span></label>}
               <select required value={selectedRoomId} onChange={(event) => setSelectedRoomId(event.target.value)} disabled={isLoadingRooms || isChangingRoom || availableRooms.length === 0} className="w-full border border-slate-300 bg-white px-3 py-2 text-sm">
-                {isLoadingRooms ? <option value="">Loading available rooms...</option> : availableRooms.length ? availableRooms.map((room) => <option key={room.id} value={room.id}>Room {room.roomNumber} · {room.type} · Floor {room.floor}</option>) : <option value="">No clean rooms available for these dates</option>}
+                {isLoadingRooms ? <option value="">Loading available rooms...</option> : availableRooms.length ? availableRooms.map((room) => <option key={room.id} value={room.id}>Room {room.roomNumber} · {room.type} · Floor {room.floor}{room.status === 'cleaning' ? ' · Not inspected' : ''}</option>) : <option value="">No eligible rooms available for these dates</option>}
               </select>
+              <label className="block text-xs font-semibold text-slate-700">Move reason<input required value={roomChangeReason} onChange={(event) => setRoomChangeReason(event.target.value)} className="mt-1 w-full border border-slate-300 bg-white px-3 py-2 text-sm font-normal" placeholder="Required for the audit record" /></label>
               {roomChangeError && <p role="alert" className="text-xs text-rose-700">{roomChangeError}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsEditingRoom(false)} disabled={isChangingRoom} className="border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Cancel</button>
-                <button type="submit" disabled={isLoadingRooms || isChangingRoom || !selectedRoomId} className="inline-flex items-center gap-1.5 bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                <button type="submit" disabled={isLoadingRooms || isChangingRoom || !selectedRoomId || !roomChangeReason.trim()} className="inline-flex items-center gap-1.5 bg-indigo-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
                   <Save className="h-3.5 w-3.5" /> {isChangingRoom ? 'Saving...' : 'Save room'}
                 </button>
               </div>

@@ -30,7 +30,8 @@ export const HousekeepingTab: React.FC = () => {
     currentAccessAreas,
   } = useHotel();
   const canAssignTasks = ['General Manager', 'Housekeeping Supervisor', 'System Administrator'].includes(currentRole)
-    || currentAccessAreas.includes('housekeeping');
+    || (currentRole !== 'Maintenance Technician' && currentAccessAreas.includes('housekeeping'));
+  const canReportMaintenance = canAssignTasks || currentRole === 'Maintenance Technician';
 
   // State for creating new task or ticket
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
@@ -166,7 +167,7 @@ export const HousekeepingTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {canAssignTasks && <button
+          {canReportMaintenance && <button
             onClick={async () => {
               setMaintenanceAssigneeId('');
               await loadAvailableStaff('maintenance');

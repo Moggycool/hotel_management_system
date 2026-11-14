@@ -9,11 +9,18 @@ from apps.audit.models import AuditLog, AuditModule
 
 @pytest.mark.django_db
 def test_housekeeping_task_api_syncs_task_worker_and_room_lifecycle():
+    supervisor = User.objects.create_user(
+        email='housekeeping-supervisor@example.et',
+        password='StrongPassword#2026',
+        full_name='Housekeeping Supervisor',
+        role=StaffRole.HOUSEKEEPING_SUPERVISOR,
+    )
     user = User.objects.create_user(
         email='housekeeper@example.et',
         password='StrongPassword#2026',
         full_name='Almaz Housekeeper',
         role=StaffRole.HOUSEKEEPER,
+        reports_to=supervisor,
     )
     room_type = RoomType.objects.create(
         name='Test Standard',
@@ -54,14 +61,16 @@ def test_housekeeping_task_api_syncs_task_worker_and_room_lifecycle():
     assert complete_response.status_code == 200
     assert complete_response.data['status'] == 'INSPECTION_REQUIRED'
 
-    inspect_response = client.post(
+    supervisor_client = APIClient()
+    supervisor_client.force_authenticate(user=supervisor)
+    inspect_response = supervisor_client.post(
         f'/api/v1/housekeeping/tasks/{task_id}/inspect/')
     assert inspect_response.status_code == 200
     assert inspect_response.data['status'] == 'COMPLETED'
     room.refresh_from_db()
     assert room.housekeeping_status == 'CLEAN'
     assert room.status == RoomStatus.VACANT_CLEAN
-    assert HousekeepingTask.objects.get(pk=task_id).inspected_by == user
+    assert HousekeepingTask.objects.get(pk=task_id).inspected_by == supervisor
     assert AuditLog.objects.filter(
         module=AuditModule.HOUSEKEEPING,
         action='HOUSEKEEPING_STARTED',
@@ -70,10 +79,10 @@ def test_housekeeping_task_api_syncs_task_worker_and_room_lifecycle():
     assert AuditLog.objects.filter(
         module=AuditModule.HOUSEKEEPING,
         action='HOUSEKEEPING_INSPECTION_PASSED',
-        actor_id=user.id,
+        actor_id=supervisor.id,
     ).exists()
 
-    reopen_response = client.post(
+    reopen_response = supervisor_client.post(
         f'/api/v1/housekeeping/tasks/{task_id}/reopen/')
     assert reopen_response.status_code == 200
     assert reopen_response.data['status'] == 'PENDING'
@@ -199,3 +208,55 @@ def test_supervisor_creates_database_maintenance_ticket_for_direct_report():
     technician_client.force_authenticate(user=technician)
     assert [item['id'] for item in technician_client.get(
         '/api/v1/housekeeping/maintenance/').data] == [str(ticket.id)]
+
+
+@pytest.mark.django_db
+def test_maintenance_technician_can_report_and_request_ooo_without_assignment():
+    from datetime import timedelta
+    from django.utils import timezone
+
+    technician = User.objects.create_user(
+        email='maintenance-reporter@example.et', password='StrongPassword#2026',
+        full_name='Maintenance Reporter', role=StaffRole.MAINTENANCE,
+    )
+    room_type = RoomType.objects.create(
+        name='OOO Request Room', description='OOO request test', base_price_etb='3000.00')
+    room = Room.objects.create(room_number='704', room_type=room_type, floor=7)
+    client = APIClient()
+    client.force_authenticate(user=technician)
+
+    ticket_response = client.post(
+        '/api/v1/housekeeping/maintenance/',
+        {
+            'room': str(room.id), 'title': 'Replace room air conditioner',
+            'category': 'HVAC', 'priority': 'HIGH', 'notes': 'Unit not cooling.',
+        },
+        format='json',
+    )
+    assert ticket_response.status_code == 201, ticket_response.data
+    ticket = MaintenanceTicket.objects.get(pk=ticket_response.data['id'])
+    assert ticket.reported_by == technician
+    assert ticket.assigned_to is None
+    assert [item['id'] for item in client.get(
+        '/api/v1/housekeeping/maintenance/').data] == [str(ticket.id)]
+    room.refresh_from_db()
+    assert room.status == RoomStatus.VACANT_CLEAN
+
+    expected_return = timezone.localdate() + timedelta(days=3)
+    request_response = client.post(
+        f'/api/v1/rooms/{room.id}/request-out-of-order/',
+        {
+            'reason': 'Air conditioner is unusable',
+            'expected_return_date': str(expected_return),
+            'maintenance_ticket_id': str(ticket.id),
+        },
+        format='json',
+    )
+    assert request_response.status_code == 200, request_response.data
+    available = client.get(
+        '/api/v1/rooms/availability/',
+        {'check_in': str(expected_return), 'check_out': str(
+            expected_return + timedelta(days=1))},
+    )
+    assert available.status_code == 200
+    assert str(room.id) not in {item['id'] for item in available.data}

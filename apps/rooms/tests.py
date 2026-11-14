@@ -7,7 +7,8 @@ from apps.rooms.models import RoomType, Room, RatePlan, RoomStatus
 from apps.rooms.services import AvailabilityEngine
 from apps.guests.models import Guest, IDType
 from apps.reservations.models import Reservation, BookingSource, ReservationStatus
-from apps.housekeeping.models import HousekeepingTask
+from apps.housekeeping.models import HousekeepingTask, MaintenanceTicket
+from apps.billing.models import Folio, FolioItem
 from apps.audit.models import AuditLog, AuditModule
 from rest_framework.test import APIClient
 
@@ -74,6 +75,19 @@ def test_availability_engine_excludes_overlapping_reservations(setup_rooms):
     # Room 201 must be excluded, Room 202 must be available
     assert setup_rooms['r1'] not in avail_rooms
     assert setup_rooms['r2'] in avail_rooms
+
+
+@pytest.mark.django_db
+def test_availability_engine_only_returns_inspected_vacant_rooms(setup_rooms):
+    setup_rooms['r1'].status = RoomStatus.VACANT_DIRTY
+    setup_rooms['r1'].housekeeping_status = 'DIRTY'
+    setup_rooms['r1'].save(update_fields=['status', 'housekeeping_status'])
+
+    available_rooms = AvailabilityEngine.get_available_rooms(
+        timezone.localdate(), timezone.localdate() + timedelta(days=1))
+
+    assert setup_rooms['r1'] not in available_rooms
+    assert setup_rooms['r2'] in available_rooms
 
 
 @pytest.mark.django_db
@@ -183,6 +197,53 @@ def test_rate_plan_discount_calculation(setup_rooms):
 
 
 @pytest.mark.django_db
+def test_front_office_manager_proposes_rate_plan_and_general_manager_approves(setup_rooms):
+    front_office_manager = User.objects.create_user(
+        email='rate-proposer@example.et', password='StrongPassword#2026',
+        full_name='Rate Proposer', role=StaffRole.FRONT_OFFICE_MANAGER,
+    )
+    proposal_payload = {
+        'name': 'Corporate Weekday Rate',
+        'multiplier': '0.90',
+        'fixed_surcharge_etb': '250.00',
+        'description': 'Negotiated weekday corporate pricing',
+        'is_resident_only': False,
+    }
+    proposal_response = authenticated_client(front_office_manager).post(
+        '/api/v1/rooms/rate-plan-proposals/', proposal_payload, format='json')
+    assert proposal_response.status_code == 201, proposal_response.data
+    assert proposal_response.data['status'] == 'PENDING'
+    assert not RatePlan.objects.filter(name=proposal_payload['name']).exists()
+
+    manager = setup_rooms['user']
+    manager_client = authenticated_client(manager)
+    direct_change = manager_client.post(
+        '/api/v1/rooms/rate-plans/',
+        {
+            'name': 'Unapproved Direct Rate', 'multiplier': '0.80',
+            'fixed_surcharge_etb': '0.00', 'description': 'Bypass proposal',
+        },
+        format='json',
+    )
+    assert direct_change.status_code == 403
+
+    approval = manager_client.post(
+        f"/api/v1/rooms/rate-plan-proposals/{proposal_response.data['id']}/approve/",
+        {'decision_notes': 'Approved for signed corporate agreement.'},
+        format='json',
+    )
+    assert approval.status_code == 200, approval.data
+    assert approval.data['status'] == 'APPROVED'
+    assert str(approval.data['approved_by']) == str(manager.id)
+    rate_plan = RatePlan.objects.get(name=proposal_payload['name'])
+    assert rate_plan.multiplier == Decimal('0.90')
+    assert rate_plan.fixed_surcharge_etb == Decimal('250.00')
+    assert AuditLog.objects.filter(
+        action='RATE_PLAN_PROPOSAL_APPROVED', actor_id=manager.id,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_room_api_creates_and_updates_room(setup_rooms):
     client = authenticated_client(setup_rooms['user'])
     response = client.post(
@@ -191,6 +252,7 @@ def test_room_api_creates_and_updates_room(setup_rooms):
             'room_number': '203',
             'room_type_id': str(setup_rooms['rt'].id),
             'floor': 2,
+            'wing': 'East Wing',
             'status': RoomStatus.VACANT_CLEAN,
             'housekeeping_status': 'CLEAN',
             'notes': '',
@@ -200,17 +262,178 @@ def test_room_api_creates_and_updates_room(setup_rooms):
 
     assert response.status_code == 201
     assert response.data['room_number'] == '203'
+    assert response.data['wing'] == 'East Wing'
     assert response.data['room_type']['id'] == str(setup_rooms['rt'].id)
 
-    update_response = client.patch(
+    status_response = client.patch(
         f"/api/v1/rooms/{response.data['id']}/",
         {'status': RoomStatus.MAINTENANCE, 'notes': 'Repair required'},
         format='json',
     )
 
+    assert status_response.status_code == 400
+    update_response = client.patch(
+        f"/api/v1/rooms/{response.data['id']}/",
+        {'notes': 'Repair required', 'wing': 'North Wing'},
+        format='json',
+    )
     assert update_response.status_code == 200
-    assert update_response.data['status'] == RoomStatus.MAINTENANCE
     assert update_response.data['notes'] == 'Repair required'
+    assert update_response.data['wing'] == 'North Wing'
+
+
+@pytest.mark.django_db
+def test_oos_status_is_owned_by_housekeeping_supervisor(setup_rooms):
+    supervisor = User.objects.create_user(
+        email='oos-supervisor@example.et', password='StrongPassword#2026',
+        full_name='OOS Supervisor', role=StaffRole.HOUSEKEEPING_SUPERVISOR,
+    )
+    response = authenticated_client(supervisor).post(
+        f'/api/v1/rooms/{setup_rooms["r1"].id}/set-operational-status/',
+        {'status': RoomStatus.OUT_OF_SERVICE, 'reason': 'Deep sanitation'},
+        format='json',
+    )
+
+    assert response.status_code == 200, response.data
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].status == RoomStatus.OUT_OF_SERVICE
+    assert setup_rooms['r1'].status_reason == 'Deep sanitation'
+    assert setup_rooms['r1'] not in AvailabilityEngine.get_available_rooms(
+        timezone.localdate(), timezone.localdate() + timedelta(days=1))
+
+
+@pytest.mark.django_db
+def test_ooo_requires_work_order_and_fom_confirmation_with_booking_warning(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-OOO-WARNING', guest=setup_rooms['guest'],
+        room=setup_rooms['r1'], rate_plan=setup_rooms['rp'],
+        check_in_date=today + timedelta(days=2),
+        check_out_date=today + timedelta(days=4),
+        status=ReservationStatus.CONFIRMED,
+        room_rate_total_etb=Decimal('5000.00'),
+        service_charge_etb=Decimal('500.00'), vat_etb=Decimal('750.00'),
+        grand_total_etb=Decimal('6250.00'),
+    )
+    technician = User.objects.create_user(
+        email='ooo-tech@example.et', password='StrongPassword#2026',
+        full_name='OOO Technician', role=StaffRole.MAINTENANCE,
+    )
+    manager = User.objects.create_user(
+        email='ooo-fom@example.et', password='StrongPassword#2026',
+        full_name='OOO Front Office Manager', role=StaffRole.FRONT_OFFICE_MANAGER,
+    )
+    ticket = MaintenanceTicket.objects.create(
+        room=setup_rooms['r1'], title='Replace damaged heater',
+        category='HVAC', reported_by=technician,
+    )
+    expected_return = today + timedelta(days=10)
+
+    request_response = authenticated_client(technician).post(
+        f'/api/v1/rooms/{setup_rooms["r1"].id}/request-out-of-order/',
+        {
+            'reason': 'Heater replacement requires parts',
+            'expected_return_date': str(expected_return),
+            'maintenance_ticket_id': str(ticket.id),
+        },
+        format='json',
+    )
+    assert request_response.status_code == 200, request_response.data
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].status == RoomStatus.VACANT_CLEAN
+
+    confirm_response = authenticated_client(manager).post(
+        f'/api/v1/rooms/{setup_rooms["r1"].id}/confirm-out-of-order/',
+        format='json',
+    )
+    assert confirm_response.status_code == 200, confirm_response.data
+    setup_rooms['r1'].refresh_from_db()
+    assert setup_rooms['r1'].status == RoomStatus.OUT_OF_ORDER
+    assert setup_rooms['r1'].out_of_order_ticket == ticket
+    assert any(reservation.confirmation_code in warning
+               for warning in confirm_response.data['warnings'])
+
+
+@pytest.mark.django_db
+def test_in_house_room_move_requires_reason_and_keeps_folio(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-INHOUSE-MOVE', guest=setup_rooms['guest'],
+        room=setup_rooms['r1'], rate_plan=setup_rooms['rp'],
+        check_in_date=today, check_out_date=today + timedelta(days=2),
+        status=ReservationStatus.CHECKED_IN,
+        room_rate_total_etb=Decimal('10000.00'),
+        service_charge_etb=Decimal('1000.00'), vat_etb=Decimal('1500.00'),
+        grand_total_etb=Decimal('12500.00'),
+    )
+    setup_rooms['r1'].status = RoomStatus.OCCUPIED
+    setup_rooms['r1'].save(update_fields=['status'])
+    folio = Folio.objects.create(
+        reservation=reservation, guest=setup_rooms['guest'])
+    manager = User.objects.create_user(
+        email='move-fom@example.et', password='StrongPassword#2026',
+        full_name='Move Front Office Manager', role=StaffRole.FRONT_OFFICE_MANAGER,
+    )
+    client = authenticated_client(manager)
+
+    missing_reason = client.patch(
+        f'/api/v1/reservations/{reservation.id}/change-room/',
+        {'room_id': str(setup_rooms['r2'].id)}, format='json',
+    )
+    assert missing_reason.status_code == 400
+
+    response = client.patch(
+        f'/api/v1/reservations/{reservation.id}/change-room/',
+        {'room_id': str(setup_rooms['r2'].id), 'reason': 'AC failure'},
+        format='json',
+    )
+    assert response.status_code == 200, response.data
+    reservation.refresh_from_db()
+    setup_rooms['r1'].refresh_from_db()
+    setup_rooms['r2'].refresh_from_db()
+    assert reservation.room == setup_rooms['r2']
+    assert reservation.folio == folio
+    assert setup_rooms['r1'].status == RoomStatus.VACANT_DIRTY
+    assert setup_rooms['r2'].status == RoomStatus.OCCUPIED
+    assert HousekeepingTask.objects.filter(
+        room__in=[setup_rooms['r1'], setup_rooms['r2']]).count() == 2
+
+
+@pytest.mark.django_db
+def test_checkout_requires_settled_folio_and_closes_it(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-CHECKOUT-FOLIO', guest=setup_rooms['guest'],
+        room=setup_rooms['r1'], rate_plan=setup_rooms['rp'],
+        check_in_date=today - timedelta(days=1), check_out_date=today,
+        status=ReservationStatus.CHECKED_IN,
+        room_rate_total_etb=Decimal('5000.00'),
+        service_charge_etb=Decimal('500.00'), vat_etb=Decimal('750.00'),
+        grand_total_etb=Decimal('6250.00'),
+    )
+    setup_rooms['r1'].status = RoomStatus.OCCUPIED
+    setup_rooms['r1'].save(update_fields=['status'])
+    folio = Folio.objects.create(
+        reservation=reservation, guest=setup_rooms['guest'])
+    FolioItem.objects.create(
+        folio=folio, category='ROOM', description='Room charge', amount=Decimal('10.00'),
+    )
+    client = authenticated_client(setup_rooms['user'])
+
+    blocked = client.post('/api/v1/reservations/check-out/', {
+        'confirmation_code': reservation.confirmation_code,
+    }, format='json')
+    assert blocked.status_code == 409
+    assert not Folio.objects.get(pk=folio.pk).is_closed
+
+    FolioItem.objects.filter(folio=folio).delete()
+    settled = client.post('/api/v1/reservations/check-out/', {
+        'confirmation_code': reservation.confirmation_code,
+    }, format='json')
+    assert settled.status_code == 200, settled.data
+    folio.refresh_from_db()
+    assert folio.is_closed
+    assert folio.closed_at is not None
 
 
 @pytest.mark.django_db
@@ -823,7 +1046,7 @@ def test_front_desk_staff_can_change_room_for_paid_or_unpaid_reservations(
 
     response = authenticated_client(staff).patch(
         f'/api/v1/reservations/{reservation.pk}/change-room/',
-        {'room_id': str(setup_rooms['r2'].pk)},
+        {'room_id': str(setup_rooms['r2'].pk), 'reason': 'Guest preference'},
         format='json',
     )
 
@@ -838,6 +1061,69 @@ def test_front_desk_staff_can_change_room_for_paid_or_unpaid_reservations(
     assert reservation.deposit_paid_etb == deposit_paid
     assert AuditLog.objects.filter(
         action='RESERVATION_ROOM_CHANGED').count() == 1
+
+
+@pytest.mark.django_db
+def test_only_fom_can_override_uninspected_assignment_and_checkin_still_requires_inspection(setup_rooms):
+    today = timezone.localdate()
+    reservation = Reservation.objects.create(
+        confirmation_code='TEST-ROOM-INSPECTION-OVERRIDE',
+        guest=setup_rooms['guest'], room=setup_rooms['r1'], rate_plan=setup_rooms['rp'],
+        check_in_date=today, check_out_date=today + timedelta(days=2),
+        status=ReservationStatus.CONFIRMED,
+        room_rate_total_etb=Decimal('5000.00'),
+        service_charge_etb=Decimal('500.00'),
+        vat_etb=Decimal('750.00'),
+        grand_total_etb=Decimal('6250.00'),
+        deposit_paid_etb=Decimal('500.00'),
+    )
+    dirty_room = setup_rooms['r2']
+    dirty_room.status = RoomStatus.VACANT_DIRTY
+    dirty_room.housekeeping_status = 'DIRTY'
+    dirty_room.save(update_fields=['status', 'housekeeping_status'])
+
+    receptionist = User.objects.create_user(
+        email='override-receptionist@example.et', password='StrongPassword#2026',
+        full_name='Override Receptionist', role=StaffRole.RECEPTIONIST,
+    )
+    forbidden = authenticated_client(receptionist).patch(
+        f'/api/v1/reservations/{reservation.id}/change-room/',
+        {
+            'room_id': str(dirty_room.id), 'reason': 'Early assignment',
+            'inspection_override': True,
+        },
+        format='json',
+    )
+    assert forbidden.status_code == 403
+
+    manager = User.objects.create_user(
+        email='override-fom@example.et', password='StrongPassword#2026',
+        full_name='Override Front Office Manager', role=StaffRole.FRONT_OFFICE_MANAGER,
+    )
+    manager_client = authenticated_client(manager)
+    overridden = manager_client.patch(
+        f'/api/v1/reservations/{reservation.id}/change-room/',
+        {
+            'room_id': str(dirty_room.id), 'reason': 'Urgent room allocation',
+            'inspection_override': True,
+        },
+        format='json',
+    )
+    assert overridden.status_code == 200, overridden.data
+    reservation.refresh_from_db()
+    dirty_room.refresh_from_db()
+    assert reservation.room == dirty_room
+    assert dirty_room.status == RoomStatus.VACANT_DIRTY
+    assert AuditLog.objects.filter(
+        action='ROOM_ASSIGNMENT_INSPECTION_OVERRIDE',
+        actor_id=manager.id,
+        severity='WARNING',
+    ).exists()
+
+    checkin = manager_client.post('/api/v1/reservations/check-in/', {
+        'confirmation_code': reservation.confirmation_code,
+    }, format='json')
+    assert checkin.status_code == 409
 
 
 @pytest.mark.django_db
